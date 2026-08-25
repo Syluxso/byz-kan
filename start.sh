@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+# Port 8109 — do not use 8105 (managed-api), 8106 (alerts), 8107 (todos), 8108 (tags).
+export PORT="${PORT:-8109}"
+export BIND="${BIND:-127.0.0.1}"
+export IAM_JWKS_URL="${IAM_JWKS_URL:-https://iam.byzantineapp.dev/.well-known/jwks.json}"
+export DB_URL="${DB_URL:-postgres://db:db@127.0.0.1:5441/kan?sslmode=disable}"
+
+exec /opt/services/byz-kan/byz-kan
