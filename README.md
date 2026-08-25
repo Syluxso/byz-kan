@@ -28,7 +28,7 @@ Local Postgres: `projects/db/docker-compose.yml` service `byz-kan-db` (host port
 
 Health: `GET /healthz` → `{ "status": "UP", "tickets": N }`  
 Ping: `GET /api/v1/kan/ping`  
-Gateway: `/kan/**` → this service (`BYZ_KAN_URI`, default `http://127.0.0.1:8109`)
+Gateway: `https://api.byzantineapp.dev/kan/**` → this service (`BYZ_KAN_URI`, default `http://127.0.0.1:8109`)
 
 ## API (all under `/api/v1`, JWT except ping/health)
 

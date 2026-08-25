@@ -45,4 +45,13 @@ curl -sf http://127.0.0.1:8109/healthz
 
 Jenkins copies the binary + `start.sh` and restarts supervisor (see `Jenkinsfile`).
 
+Public URL (after byz-api-gateway is redeployed with `/kan`):
+
+```bash
+curl -s https://api.byzantineapp.dev/kan/healthz
+curl -s https://api.byzantineapp.dev/kan/api/v1/kan/ping
+```
+
+Admin System Health probes `https://api.byzantineapp.dev/kan/actuator/health`.
+
 Do **not** bind 8105–8108 (managed-api, alerts, todos, tags).
