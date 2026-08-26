@@ -10,4 +10,12 @@ export DB_URL="${DB_URL:-postgres://db:db@127.0.0.1:5441/kan?sslmode=disable}"
 # IAM public/confidential client id users log in with (JWT must include a tenant).
 export KAN_IAM_CLIENT_ID="${KAN_IAM_CLIENT_ID:-byz-admin}"
 
+# Host-only overrides (KAN_BRANDS JSON). Do not put JSON in supervisor environment=.
+if [ -f /opt/services/byz-kan/local.env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /opt/services/byz-kan/local.env
+  set +a
+fi
+
 exec /opt/services/byz-kan/byz-kan
