@@ -90,6 +90,10 @@ func (a *app) routes(j func(http.HandlerFunc) http.HandlerFunc) *http.ServeMux {
 	mux.HandleFunc("GET /actuator/health", a.handleHealth)
 	mux.HandleFunc("GET /api/v1/kan/ping", a.handlePing)
 
+	mcpH := a.mcpHTTPHandler()
+	mux.Handle("/mcp", j(mcpH.ServeHTTP))
+	mux.Handle("/mcp/", j(mcpH.ServeHTTP))
+
 	mux.HandleFunc("GET /api/v1/boards", j(a.listBoards))
 	mux.HandleFunc("POST /api/v1/boards", j(a.createBoard))
 	mux.HandleFunc("GET /api/v1/boards/{id}", j(a.getBoard))

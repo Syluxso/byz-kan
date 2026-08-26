@@ -5,7 +5,7 @@
 **DB:** PostgreSQL schema `kan`  
 **Auth:** byz_aim JWT (RS256, JWKS)  
 **Transport V1:** REST only  
-**MCP:** same binary, later (`/mcp`); not a second process
+**MCP:** same binary, Streamable HTTP at `/mcp` (stateless)
 
 This service is **not** byz-todos. Todos are system-wide / agent work items. Kanban is boards, swimlanes, and tickets.
 

@@ -12,7 +12,7 @@ Multi-tenant Kanban service for the Byzantine stack. **Not** byz-todos.
 - Soft-delete everywhere; cascade on board delete
 - Human ticket keys (`PREFIX-N`) unique **per tenant**
 - Files via **byz-file-service** `fileId`; remote URLs via `links`
-- REST in V1; MCP later on the same binary
+- REST plus Streamable HTTP MCP at `/mcp` (same JWT)
 
 ## Run
 
@@ -29,6 +29,9 @@ Local Postgres: `projects/db/docker-compose.yml` service `byz-kan-db` (host port
 Health: `GET /healthz` → `{ "status": "UP", "tickets": N }`  
 Ping: `GET /api/v1/kan/ping`  
 Gateway: `https://api.byzantineapp.dev/kan/**` → this service (`BYZ_KAN_URI`, default `http://127.0.0.1:8109`)
+
+MCP (Grok Custom connector): `https://api.byzantineapp.dev/kan/mcp`  
+Same Bearer IAM JWT (`organization_id` + `tenant_id`). Tools: `list_boards`, `create_board`, `list_tickets`, `create_ticket`, `get_ticket`, `move_ticket`, `log_time`.
 
 ## API (all under `/api/v1`, JWT except ping/health)
 

@@ -50,6 +50,8 @@ Public URL (after byz-api-gateway is redeployed with `/kan`):
 ```bash
 curl -s https://api.byzantineapp.dev/kan/healthz
 curl -s https://api.byzantineapp.dev/kan/api/v1/kan/ping
+
+Grok Custom connector URL: `https://api.byzantineapp.dev/kan/mcp` (Bearer JWT).
 ```
 
 Admin System Health probes `https://api.byzantineapp.dev/kan/actuator/health`.
