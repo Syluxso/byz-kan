@@ -332,10 +332,15 @@ func (a *app) redirectAllowed(ctx context.Context, clientID, redirectURI string)
 
 func validRedirectURI(u string) bool {
 	p, err := url.Parse(u)
-	if err != nil || p.Scheme != "https" || p.Host == "" {
+	if err != nil || p.Host == "" {
 		return false
 	}
-	return true
+	// localhost callbacks are allowed over plain HTTP per RFC 8252
+	host := p.Hostname()
+	if host == "localhost" || host == "127.0.0.1" {
+		return p.Scheme == "http" || p.Scheme == "https"
+	}
+	return p.Scheme == "https"
 }
 
 func s256Challenge(verifier string) string {

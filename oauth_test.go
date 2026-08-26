@@ -41,7 +41,7 @@ func TestOAuthMetadata(t *testing.T) {
 func TestMCPUnauthorizedHasResourceMetadata(t *testing.T) {
 	a := &app{store: &Store{}, logBuf: NewLogBuffer(), publicURL: "https://api.byzantineapp.dev/kan"}
 	h := withCORS(a.routes(func(next http.HandlerFunc) http.HandlerFunc {
-		return withJWT(nil, a.publicURL, next)
+		return withJWT(nil, nil, a.publicURL, next)
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
 	req.Header.Set("Content-Type", "application/json")
