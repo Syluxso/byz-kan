@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,14 +16,22 @@ import (
 )
 
 type app struct {
-	store  *Store
-	logBuf *LogBuffer
+	store       *Store
+	logBuf      *LogBuffer
+	jwks        keyfunc.Keyfunc
+	publicURL   string
+	iamURL      string
+	iamClientID string
+	httpc       *http.Client
 }
 
 func main() {
 	addr := env("BIND", "0.0.0.0") + ":" + env("PORT", "8109")
 	jwksURL := env("IAM_JWKS_URL", "https://iam.byzantineapp.dev/.well-known/jwks.json")
 	dbURL := env("DB_URL", "postgres://db:db@127.0.0.1:5441/kan?sslmode=disable")
+	publicURL := strings.TrimRight(env("KAN_PUBLIC_URL", "https://api.byzantineapp.dev/kan"), "/")
+	iamURL := strings.TrimRight(env("IAM_URL", "https://iam.byzantineapp.dev"), "/")
+	iamClientID := env("KAN_IAM_CLIENT_ID", env("IAM_CLIENT_ID", ""))
 
 	logBuf := NewLogBuffer()
 	teeStdLog(logBuf, "byz-kan")
@@ -40,14 +49,28 @@ func main() {
 	if err := store.init(ctx0); err != nil {
 		log.Fatalf("db init: %v", err)
 	}
+	if err := store.initOAuth(ctx0); err != nil {
+		log.Fatalf("oauth db init: %v", err)
+	}
 
 	jwks, err := keyfunc.NewDefaultCtx(ctx0, []string{jwksURL})
 	if err != nil {
 		log.Fatalf("jwks: %v", err)
 	}
 
-	a := &app{store: store, logBuf: logBuf}
-	mux := a.routes(func(h http.HandlerFunc) http.HandlerFunc { return withJWT(jwks, h) })
+	a := &app{
+		store:       store,
+		logBuf:      logBuf,
+		jwks:        jwks,
+		publicURL:   publicURL,
+		iamURL:      iamURL,
+		iamClientID: iamClientID,
+		httpc:       &http.Client{Timeout: 15 * time.Second},
+	}
+	if iamClientID == "" {
+		log.Printf("warning: KAN_IAM_CLIENT_ID unset — Grok OAuth login will fail until set")
+	}
+	mux := a.routes(func(h http.HandlerFunc) http.HandlerFunc { return withJWT(jwks, publicURL, h) })
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -89,6 +112,15 @@ func (a *app) routes(j func(http.HandlerFunc) http.HandlerFunc) *http.ServeMux {
 	mux.HandleFunc("GET /healthz", a.handleHealth)
 	mux.HandleFunc("GET /actuator/health", a.handleHealth)
 	mux.HandleFunc("GET /api/v1/kan/ping", a.handlePing)
+
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", a.handlePRM)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", a.handlePRM)
+	mux.HandleFunc("GET /mcp/.well-known/oauth-protected-resource", a.handlePRM)
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", a.handleASMeta)
+	mux.HandleFunc("POST /oauth/register", a.handleOAuthRegister)
+	mux.HandleFunc("GET /oauth/authorize", a.handleOAuthAuthorize)
+	mux.HandleFunc("POST /oauth/authorize", a.handleOAuthAuthorizePost)
+	mux.HandleFunc("POST /oauth/token", a.handleOAuthToken)
 
 	mcpH := a.mcpHTTPHandler()
 	mux.Handle("/mcp", j(mcpH.ServeHTTP))

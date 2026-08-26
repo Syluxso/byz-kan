@@ -347,3 +347,24 @@ CREATE INDEX IF NOT EXISTS idx_activity_ticket
 
 CREATE INDEX IF NOT EXISTS idx_activity_board
     ON kan.activity_events (board_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- oauth (Grok / MCP PKCE — stores clients + one-time auth codes)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS kan.oauth_clients (
+    client_id      TEXT PRIMARY KEY,
+    redirect_uris  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS kan.oauth_codes (
+    code            TEXT PRIMARY KEY,
+    client_id       TEXT NOT NULL,
+    redirect_uri    TEXT NOT NULL,
+    code_challenge  TEXT NOT NULL,
+    access_token    TEXT NOT NULL,
+    refresh_token   TEXT,
+    expires_in      INT NOT NULL DEFAULT 3600,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    used_at         TIMESTAMPTZ
+);

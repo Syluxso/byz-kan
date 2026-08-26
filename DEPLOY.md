@@ -15,6 +15,9 @@ export PORT=8109
 export BIND=127.0.0.1
 export DB_URL=postgres://kan:...@127.0.0.1:5432/kan?sslmode=disable
 export IAM_JWKS_URL=https://iam.byzantineapp.dev/.well-known/jwks.json
+export IAM_URL=https://iam.byzantineapp.dev
+export KAN_PUBLIC_URL=https://api.byzantineapp.dev/kan
+export KAN_IAM_CLIENT_ID=byz-admin   # IAM client id users log in with (must have tenant)
 ```
 
 Schema is created on process start (`CREATE SCHEMA IF NOT EXISTS kan` + tables).

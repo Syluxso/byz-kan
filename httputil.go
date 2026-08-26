@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 )
 
 type problem struct {
@@ -22,6 +24,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	writeJSON(w, status, problem{Title: title, Detail: detail, Status: status})
+}
+
+func writeUnauthorized(w http.ResponseWriter, publicURL, detail string) {
+	meta := strings.TrimRight(publicURL, "/") + "/.well-known/oauth-protected-resource"
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="byz-kan", resource_metadata=%q`, meta))
+	writeProblem(w, http.StatusUnauthorized, "Unauthorized", detail)
 }
 
 func writeStoreError(w http.ResponseWriter, err error, fallback string) {

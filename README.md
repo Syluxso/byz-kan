@@ -31,7 +31,17 @@ Ping: `GET /api/v1/kan/ping`
 Gateway: `https://api.byzantineapp.dev/kan/**` → this service (`BYZ_KAN_URI`, default `http://127.0.0.1:8109`)
 
 MCP (Grok Custom connector): `https://api.byzantineapp.dev/kan/mcp`  
-Same Bearer IAM JWT (`organization_id` + `tenant_id`). Tools: `list_boards`, `create_board`, `list_tickets`, `create_ticket`, `get_ticket`, `move_ticket`, `log_time`.
+Grok will prompt for OAuth (PKCE). After deploy, either let Grok discover metadata, or fill:
+
+- Authorization: `https://api.byzantineapp.dev/kan/oauth/authorize`
+- Token: `https://api.byzantineapp.dev/kan/oauth/token`
+- Client ID: `grok` (or let Grok register)
+- Token auth method: none (PKCE)
+- Sign in with a Byzantine user whose JWT has `organization_id` **and** `tenant_id`
+
+Supervisor must set `KAN_IAM_CLIENT_ID` (e.g. `byz-admin`).
+
+Tools: `list_boards`, `create_board`, `list_tickets`, `create_ticket`, `get_ticket`, `move_ticket`, `log_time`.
 
 ## API (all under `/api/v1`, JWT except ping/health)
 

@@ -44,11 +44,11 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-func withJWT(k keyfunc.Keyfunc, next http.HandlerFunc) http.HandlerFunc {
+func withJWT(k keyfunc.Keyfunc, publicURL string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		h := r.Header.Get("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
-			writeProblem(w, http.StatusUnauthorized, "Unauthorized", "missing bearer token")
+			writeUnauthorized(w, publicURL, "missing bearer token")
 			return
 		}
 		tokenStr := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
@@ -57,7 +57,7 @@ func withJWT(k keyfunc.Keyfunc, next http.HandlerFunc) http.HandlerFunc {
 			jwt.WithExpirationRequired(),
 		)
 		if err != nil || !tok.Valid {
-			writeProblem(w, http.StatusUnauthorized, "Unauthorized", "invalid token")
+			writeUnauthorized(w, publicURL, "invalid token")
 			return
 		}
 		claims, ok := tok.Claims.(jwt.MapClaims)
