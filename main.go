@@ -34,6 +34,7 @@ type app struct {
 	publicURL   string
 	iamURL      string
 	iamClientID string
+	patSecret   []byte // HS256 key for personal access tokens; set via KAN_PAT_SECRET (hex)
 	httpc       *http.Client
 	brands      map[string]Brand // host → Brand, populated from KAN_BRANDS env var
 }
@@ -47,6 +48,8 @@ func main() {
 	iamClientID := env("KAN_IAM_CLIENT_ID", env("IAM_CLIENT_ID", ""))
 
 	brands := parseBrands(env("KAN_BRANDS", ""))
+
+	patSecret := decodePATSecret(env("KAN_PAT_SECRET", ""))
 
 	logBuf := NewLogBuffer()
 	teeStdLog(logBuf, "byz-kan")
@@ -80,13 +83,14 @@ func main() {
 		publicURL:   publicURL,
 		iamURL:      iamURL,
 		iamClientID: iamClientID,
+		patSecret:   patSecret,
 		httpc:       &http.Client{Timeout: 15 * time.Second},
 		brands:      brands,
 	}
 	if iamClientID == "" {
 		log.Printf("warning: KAN_IAM_CLIENT_ID unset — Grok OAuth login will fail until set")
 	}
-	mux := a.routes(func(h http.HandlerFunc) http.HandlerFunc { return withJWT(jwks, publicURL, h) })
+	mux := a.routes(func(h http.HandlerFunc) http.HandlerFunc { return withJWT(jwks, patSecret, publicURL, h) })
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -137,6 +141,7 @@ func (a *app) routes(j func(http.HandlerFunc) http.HandlerFunc) *http.ServeMux {
 	mux.HandleFunc("GET /oauth/authorize", a.handleOAuthAuthorize)
 	mux.HandleFunc("POST /oauth/authorize", a.handleOAuthAuthorizePost)
 	mux.HandleFunc("POST /oauth/token", a.handleOAuthToken)
+	mux.HandleFunc("POST /api/v1/me/tokens", a.handleCreatePAT)
 
 	mcpH := a.mcpHTTPHandler()
 	mux.Handle("/mcp", j(mcpH.ServeHTTP))

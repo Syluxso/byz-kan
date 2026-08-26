@@ -44,7 +44,7 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-func withJWT(k keyfunc.Keyfunc, publicURL string, next http.HandlerFunc) http.HandlerFunc {
+func withJWT(k keyfunc.Keyfunc, patSecret []byte, publicURL string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		h := r.Header.Get("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
@@ -52,29 +52,10 @@ func withJWT(k keyfunc.Keyfunc, publicURL string, next http.HandlerFunc) http.Ha
 			return
 		}
 		tokenStr := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-		tok, err := jwt.Parse(tokenStr, k.Keyfunc,
-			jwt.WithValidMethods([]string{"RS256"}),
-			jwt.WithExpirationRequired(),
-		)
-		if err != nil || !tok.Valid {
+		tc, err := parseAnyToken(tokenStr, k, patSecret)
+		if err != nil {
 			writeUnauthorized(w, publicURL, "invalid token")
 			return
-		}
-		claims, ok := tok.Claims.(jwt.MapClaims)
-		if !ok {
-			writeProblem(w, http.StatusUnauthorized, "Unauthorized", "invalid claims")
-			return
-		}
-		tc := TokenClaims{
-			OrganizationID: claimString(claims, "organization_id"),
-			TenantID:       claimString(claims, "tenant_id"),
-			UserID:         claimString(claims, "user_id"),
-			ClientID:       claimString(claims, "client_id"),
-			Subject:        claimString(claims, "sub"),
-			GrantType:      claimString(claims, "grant_type"),
-		}
-		if tc.ClientID == "" {
-			tc.ClientID = claimString(claims, "app_id")
 		}
 		if status, title, detail, ok := rejectScope(tc); !ok {
 			writeProblem(w, status, title, detail)
@@ -83,6 +64,43 @@ func withJWT(k keyfunc.Keyfunc, publicURL string, next http.HandlerFunc) http.Ha
 		ctx := context.WithValue(r.Context(), claimsCtxKey, tc)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+// parseAnyToken tries RS256 (IAM token) first, then HS256 (PAT) if patSecret is set.
+func parseAnyToken(tokenStr string, k keyfunc.Keyfunc, patSecret []byte) (TokenClaims, error) {
+	tok, err := jwt.Parse(tokenStr, k.Keyfunc,
+		jwt.WithValidMethods([]string{"RS256"}),
+		jwt.WithExpirationRequired(),
+	)
+	if err == nil && tok.Valid {
+		return claimsFromMap(tok.Claims.(jwt.MapClaims)), nil
+	}
+	if len(patSecret) > 0 {
+		tok, err = jwt.Parse(tokenStr,
+			func(*jwt.Token) (any, error) { return patSecret, nil },
+			jwt.WithValidMethods([]string{"HS256"}),
+			jwt.WithExpirationRequired(),
+		)
+		if err == nil && tok.Valid {
+			return claimsFromMap(tok.Claims.(jwt.MapClaims)), nil
+		}
+	}
+	return TokenClaims{}, fmt.Errorf("invalid token")
+}
+
+func claimsFromMap(claims jwt.MapClaims) TokenClaims {
+	tc := TokenClaims{
+		OrganizationID: claimString(claims, "organization_id"),
+		TenantID:       claimString(claims, "tenant_id"),
+		UserID:         claimString(claims, "user_id"),
+		ClientID:       claimString(claims, "client_id"),
+		Subject:        claimString(claims, "sub"),
+		GrantType:      claimString(claims, "grant_type"),
+	}
+	if tc.ClientID == "" {
+		tc.ClientID = claimString(claims, "app_id")
+	}
+	return tc
 }
 
 func rejectScope(tc TokenClaims) (status int, title, detail string, ok bool) {

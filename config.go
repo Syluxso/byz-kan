@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/hex"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -38,4 +40,16 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+func decodePATSecret(raw string) []byte {
+	if raw == "" {
+		log.Printf("warning: KAN_PAT_SECRET unset — personal access token issuance disabled")
+		return nil
+	}
+	b, err := hex.DecodeString(raw)
+	if err != nil {
+		log.Fatalf("KAN_PAT_SECRET must be a hex-encoded string: %v", err)
+	}
+	return b
 }
