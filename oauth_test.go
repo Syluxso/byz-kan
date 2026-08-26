@@ -66,7 +66,7 @@ func TestOAuthTokenPKCE(t *testing.T) {
 
 	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
 	challenge := s256Challenge(verifier)
-	code := "testcodepkce1"
+	code := "testcodepkce1-" + newTestUUID()
 	if err := st.SaveOAuthCode(t.Context(), code, "grok", "https://grok.com/connectors/oauth/callback", challenge, "iam-access-token", "iam-refresh", 3600); err != nil {
 		t.Fatal(err)
 	}

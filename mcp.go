@@ -32,6 +32,11 @@ func (a *app) newMCPServer() *mcp.Server {
 	}, a.mcpCreateBoard)
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_states",
+		Description: "List a board's states (swimlanes) in order, e.g. Backlog, In Progress, Testing, Completed. Use this to resolve a state name to the UUID move_ticket needs.",
+	}, a.mcpListStates)
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_tickets",
 		Description: "List tickets. Optionally filter by boardId and search q (title/body/key).",
 	}, a.mcpListTickets)
@@ -133,6 +138,25 @@ func (a *app) mcpCreateBoard(ctx context.Context, req *mcp.CallToolRequest, in m
 		return nil, nil, fmt.Errorf("name is required")
 	}
 	out, err := a.store.CreateBoard(ctx, sc.OrgID, sc.TenantID, sc.ActorID, strings.TrimSpace(in.Name), in.Description, in.KeyPrefix, false, nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcpJSON(out)
+}
+
+type mcpListStatesIn struct {
+	BoardID string `json:"boardId" jsonschema:"Board UUID"`
+}
+
+func (a *app) mcpListStates(ctx context.Context, req *mcp.CallToolRequest, in mcpListStatesIn) (*mcp.CallToolResult, any, error) {
+	sc, err := a.scopeFromMCP(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !isUUID(in.BoardID) {
+		return nil, nil, fmt.Errorf("boardId is required")
+	}
+	out, err := a.store.ListStates(ctx, sc, in.BoardID)
 	if err != nil {
 		return nil, nil, err
 	}

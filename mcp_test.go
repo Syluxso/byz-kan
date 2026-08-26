@@ -40,7 +40,7 @@ func TestMCPToolsList(t *testing.T) {
 	}
 	raw, _ := io.ReadAll(rec.Body)
 	s := string(raw)
-	for _, name := range []string{"list_boards", "create_board", "list_tickets", "create_ticket", "get_ticket", "move_ticket", "log_time"} {
+	for _, name := range []string{"list_boards", "create_board", "list_states", "list_tickets", "create_ticket", "get_ticket", "move_ticket", "log_time"} {
 		if !strings.Contains(s, name) {
 			t.Fatalf("tools/list missing %s: %s", name, s)
 		}
