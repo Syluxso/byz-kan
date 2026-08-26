@@ -24,6 +24,7 @@ type Brand struct {
 	IssuerURL string // Auth server base URL, e.g. "https://auth.cardwallah.com"
 	PublicURL string // MCP/API public base URL, e.g. "https://mcp.cardwallah.com"
 	JwksURI   string // JWKS endpoint; defaults to IssuerURL + "/.well-known/jwks.json"
+	ClientID  string // IAM client ID for this brand; falls back to KAN_IAM_CLIENT_ID
 }
 
 type app struct {

@@ -39,7 +39,7 @@ const loginPage = `<!DOCTYPE html>
 <body>
 <form class="card" method="post" action="{{.Action}}">
   <h1>Connect Grok to {{.AppName}}</h1>
-  <p>Sign in with your Byzantine account. The token will include your org and tenant.</p>
+  <p>Sign in with your {{.AppName}} account. The token will include your org and tenant.</p>
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
   <label>Email</label>
   <input type="email" name="email" required autocomplete="username"/>
@@ -190,7 +190,7 @@ func (a *app) handleOAuthAuthorizePost(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.publicBase()
 	appName := "Byzantine Kanban"
-	var iamHostOverride string
+	var iamHostOverride, iamClientOverride string
 	if b := a.brandFrom(r); b != nil {
 		base = strings.TrimRight(b.PublicURL, "/")
 		appName = b.Name
@@ -198,6 +198,7 @@ func (a *app) handleOAuthAuthorizePost(w http.ResponseWriter, r *http.Request) {
 		if u, err := url.Parse(b.IssuerURL); err == nil {
 			iamHostOverride = u.Host
 		}
+		iamClientOverride = b.ClientID
 	}
 	d := loginData{
 		AppName:     appName,
@@ -225,7 +226,7 @@ func (a *app) handleOAuthAuthorizePost(w http.ResponseWriter, r *http.Request) {
 	}
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
-	access, refresh, expiresIn, err := a.iamLogin(r.Context(), email, password, iamHostOverride)
+	access, refresh, expiresIn, err := a.iamLogin(r.Context(), email, password, iamHostOverride, iamClientOverride)
 	if err != nil {
 		d.Error = "Invalid email or password."
 		a.renderLogin(w, d)
@@ -350,11 +351,17 @@ func randomHex(n int) string {
 
 // iamLogin authenticates against byz-iam. When iamHostOverride is non-empty it is
 // sent as X-Forwarded-Host so byz-iam mints tokens with the brand's issuer URL.
-func (a *app) iamLogin(ctx context.Context, email, password, iamHostOverride string) (access, refresh string, expiresIn int, err error) {
+// When clientIDOverride is non-empty it replaces the default KAN_IAM_CLIENT_ID,
+// allowing each brand to resolve to its own IAM org/tenant.
+func (a *app) iamLogin(ctx context.Context, email, password, iamHostOverride, clientIDOverride string) (access, refresh string, expiresIn int, err error) {
+	clientID := a.iamClientID
+	if clientIDOverride != "" {
+		clientID = clientIDOverride
+	}
 	payload, _ := json.Marshal(map[string]string{
 		"email":    email,
 		"password": password,
-		"clientId": a.iamClientID,
+		"clientId": clientID,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.iamURL, "/")+"/api/v1/login", bytes.NewReader(payload))
 	if err != nil {
