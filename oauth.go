@@ -24,7 +24,7 @@ const loginPage = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Byzantine Kanban — Sign in</title>
+<title>{{.AppName}} — Sign in</title>
 <style>
   body { font-family: ui-sans-serif, system-ui, sans-serif; background:#111; color:#eee; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; }
   .card { background:#1c1c1c; border:1px solid #333; border-radius:12px; padding:28px; width:100%; max-width:380px; }
@@ -38,7 +38,7 @@ const loginPage = `<!DOCTYPE html>
 </head>
 <body>
 <form class="card" method="post" action="{{.Action}}">
-  <h1>Connect Grok to Byzantine Kanban</h1>
+  <h1>Connect Grok to {{.AppName}}</h1>
   <p>Sign in with your Byzantine account. The token will include your org and tenant.</p>
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
   <label>Email</label>
@@ -61,8 +61,32 @@ func (a *app) publicBase() string {
 	return strings.TrimRight(a.publicURL, "/")
 }
 
+// brandFrom returns the Brand matching the request's Host (or X-Forwarded-Host),
+// or nil when the request is for the default Byzantine domain.
+func (a *app) brandFrom(r *http.Request) *Brand {
+	if len(a.brands) == 0 {
+		return nil
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	host = strings.TrimSpace(strings.SplitN(host, ",", 2)[0])
+	// strip port if present (handles host:port but not IPv6 brackets)
+	if i := strings.LastIndex(host, ":"); i != -1 && strings.IndexByte(host, '[') == -1 {
+		host = host[:i]
+	}
+	if b, ok := a.brands[host]; ok {
+		return &b
+	}
+	return nil
+}
+
 func (a *app) handlePRM(w http.ResponseWriter, r *http.Request) {
 	base := a.publicBase()
+	if b := a.brandFrom(r); b != nil {
+		base = strings.TrimRight(b.PublicURL, "/")
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"resource":                 base + "/mcp",
 		"authorization_servers":    []string{base},
@@ -74,8 +98,16 @@ func (a *app) handlePRM(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleASMeta(w http.ResponseWriter, r *http.Request) {
 	base := a.publicBase()
+	issuer := base
+	jwksURI := strings.TrimRight(a.publicURL, "/") + "/.well-known/jwks.json"
+	if b := a.brandFrom(r); b != nil {
+		base = strings.TrimRight(b.PublicURL, "/")
+		issuer = strings.TrimRight(b.IssuerURL, "/")
+		jwksURI = b.JwksURI
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"issuer":                                base,
+		"issuer":                                issuer,
+		"jwks_uri":                              jwksURI,
 		"authorization_endpoint":                base + "/oauth/authorize",
 		"token_endpoint":                        base + "/oauth/token",
 		"registration_endpoint":                 base + "/oauth/register",
@@ -124,9 +156,16 @@ func (a *app) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	base := a.publicBase()
+	appName := "Byzantine Kanban"
+	if b := a.brandFrom(r); b != nil {
+		base = strings.TrimRight(b.PublicURL, "/")
+		appName = b.Name
+	}
 	q := r.URL.Query()
 	a.renderLogin(w, loginData{
-		Action:      a.publicBase() + "/oauth/authorize",
+		AppName:     appName,
+		Action:      base + "/oauth/authorize",
 		ClientID:    q.Get("client_id"),
 		RedirectURI: q.Get("redirect_uri"),
 		State:       q.Get("state"),
@@ -136,7 +175,7 @@ func (a *app) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 }
 
 type loginData struct {
-	Action, ClientID, RedirectURI, State, Challenge, Scope, Error string
+	AppName, Action, ClientID, RedirectURI, State, Challenge, Scope, Error string
 }
 
 func (a *app) renderLogin(w http.ResponseWriter, d loginData) {
@@ -149,8 +188,20 @@ func (a *app) handleOAuthAuthorizePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	base := a.publicBase()
+	appName := "Byzantine Kanban"
+	var iamHostOverride string
+	if b := a.brandFrom(r); b != nil {
+		base = strings.TrimRight(b.PublicURL, "/")
+		appName = b.Name
+		// pass the brand's auth host so byz-iam mints tokens with the correct issuer
+		if u, err := url.Parse(b.IssuerURL); err == nil {
+			iamHostOverride = u.Host
+		}
+	}
 	d := loginData{
-		Action:      a.publicBase() + "/oauth/authorize",
+		AppName:     appName,
+		Action:      base + "/oauth/authorize",
 		ClientID:    r.FormValue("client_id"),
 		RedirectURI: r.FormValue("redirect_uri"),
 		State:       r.FormValue("state"),
@@ -174,7 +225,7 @@ func (a *app) handleOAuthAuthorizePost(w http.ResponseWriter, r *http.Request) {
 	}
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
-	access, refresh, expiresIn, err := a.iamLogin(r.Context(), email, password)
+	access, refresh, expiresIn, err := a.iamLogin(r.Context(), email, password, iamHostOverride)
 	if err != nil {
 		d.Error = "Invalid email or password."
 		a.renderLogin(w, d)
@@ -297,7 +348,9 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func (a *app) iamLogin(ctx context.Context, email, password string) (access, refresh string, expiresIn int, err error) {
+// iamLogin authenticates against byz-iam. When iamHostOverride is non-empty it is
+// sent as X-Forwarded-Host so byz-iam mints tokens with the brand's issuer URL.
+func (a *app) iamLogin(ctx context.Context, email, password, iamHostOverride string) (access, refresh string, expiresIn int, err error) {
 	payload, _ := json.Marshal(map[string]string{
 		"email":    email,
 		"password": password,
@@ -308,6 +361,9 @@ func (a *app) iamLogin(ctx context.Context, email, password string) (access, ref
 		return "", "", 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if iamHostOverride != "" {
+		req.Header.Set("X-Forwarded-Host", iamHostOverride)
+	}
 	resp, err := a.httpc.Do(req)
 	if err != nil {
 		return "", "", 0, err

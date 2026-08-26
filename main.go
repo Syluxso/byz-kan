@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,16 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// Brand describes an alternate public-facing identity for this byz-kan instance.
+// When an incoming request's Host (or X-Forwarded-Host) matches a brand key,
+// OAuth discovery, login pages, and IAM token minting all use brand-specific values.
+type Brand struct {
+	Name      string // Display name shown on the login page, e.g. "Cardwallah"
+	IssuerURL string // Auth server base URL, e.g. "https://auth.cardwallah.com"
+	PublicURL string // MCP/API public base URL, e.g. "https://mcp.cardwallah.com"
+	JwksURI   string // JWKS endpoint; defaults to IssuerURL + "/.well-known/jwks.json"
+}
+
 type app struct {
 	store       *Store
 	logBuf      *LogBuffer
@@ -23,6 +34,7 @@ type app struct {
 	iamURL      string
 	iamClientID string
 	httpc       *http.Client
+	brands      map[string]Brand // host → Brand, populated from KAN_BRANDS env var
 }
 
 func main() {
@@ -32,6 +44,8 @@ func main() {
 	publicURL := strings.TrimRight(env("KAN_PUBLIC_URL", "https://api.byzantineapp.dev/kan"), "/")
 	iamURL := strings.TrimRight(env("IAM_URL", "https://iam.byzantineapp.dev"), "/")
 	iamClientID := env("KAN_IAM_CLIENT_ID", env("IAM_CLIENT_ID", ""))
+
+	brands := parseBrands(env("KAN_BRANDS", ""))
 
 	logBuf := NewLogBuffer()
 	teeStdLog(logBuf, "byz-kan")
@@ -66,6 +80,7 @@ func main() {
 		iamURL:      iamURL,
 		iamClientID: iamClientID,
 		httpc:       &http.Client{Timeout: 15 * time.Second},
+		brands:      brands,
 	}
 	if iamClientID == "" {
 		log.Printf("warning: KAN_IAM_CLIENT_ID unset — Grok OAuth login will fail until set")
@@ -227,4 +242,27 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) bool {
 		return false
 	}
 	return true
+}
+
+// parseBrands unmarshals KAN_BRANDS JSON into a host→Brand map.
+// JwksURI defaults to IssuerURL + "/.well-known/jwks.json" when blank.
+// Example env value:
+//
+//	{"mcp.cardwallah.com":{"Name":"Cardwallah","IssuerURL":"https://auth.cardwallah.com","PublicURL":"https://mcp.cardwallah.com"}}
+func parseBrands(raw string) map[string]Brand {
+	if raw == "" {
+		return nil
+	}
+	var m map[string]Brand
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		log.Printf("warning: KAN_BRANDS parse error: %v", err)
+		return nil
+	}
+	for host, b := range m {
+		if b.JwksURI == "" {
+			b.JwksURI = strings.TrimRight(b.IssuerURL, "/") + "/.well-known/jwks.json"
+			m[host] = b
+		}
+	}
+	return m
 }
