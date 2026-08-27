@@ -55,8 +55,12 @@ func (s *Store) publish(sc scope, evType, boardID, ticketID string, payload map[
 }
 
 func (s *Store) init(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, initSQL)
-	return err
+	if _, err := s.db.ExecContext(ctx, initSQL); err != nil {
+		return err
+	}
+	// SCHEMA.sql only creates what is missing; changes to tables that already
+	// exist live in migrations (CW-22).
+	return applyMigrations(ctx, s.db, migrations)
 }
 
 // pgTextArray renders values as a Postgres array literal, e.g. {"a","b"}.

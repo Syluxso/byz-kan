@@ -102,6 +102,38 @@ Notes:
 - The handler sets `X-Accel-Buffering: no` and flushes per event, but the
   **gateway must also not buffer this path** or events arrive batched or never.
 
+## Schema changes
+
+`docs/SCHEMA.sql` runs at startup and is entirely `CREATE TABLE IF NOT EXISTS`.
+That creates anything missing and **silently does nothing to a table that
+already exists** — so adding a column there never reaches a deployed database,
+and the service starts fine and then fails on the first query.
+
+New table: add it to `SCHEMA.sql`. Changing an existing table: add a migration
+to the `migrations` slice in `migrations.go`.
+
+```go
+var migrations = []migration{
+    {
+        Name: "2026-08-attachments-parent-columns",
+        SQL:  `ALTER TABLE kan.attachments ADD COLUMN IF NOT EXISTS parent_type TEXT`,
+    },
+}
+```
+
+Rules:
+
+- **Append only.** Never edit or reorder a shipped migration; add a new one.
+- Applied migrations are recorded in `kan.schema_migrations` and skipped.
+- Each runs in its own transaction, recorded in the same transaction, so a
+  failure leaves it wholly unapplied rather than half-applied.
+- Prefer idempotent SQL (`ADD COLUMN IF NOT EXISTS`) anyway.
+- A failing migration aborts startup. A service running against a schema it
+  does not match is worse than one that will not start.
+
+`TestRealMigrationsApply` runs the shipped list against a live database, so a
+bad migration fails in tests rather than on deploy.
+
 ## Tests
 
 ```bash
