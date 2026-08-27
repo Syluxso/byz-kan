@@ -252,12 +252,27 @@ func (a *app) deleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *app) listAttachments(w http.ResponseWriter, r *http.Request) {
+// CW-19: attachments hang off a ticket, a board, or an agent message.
+// The parent is taken from the route, so each path is unambiguous.
+
+func (a *app) listTicketAttachments(w http.ResponseWriter, r *http.Request) {
+	a.listAttachmentsFor(w, r, "ticket", r.PathValue("id"))
+}
+
+func (a *app) listBoardAttachments(w http.ResponseWriter, r *http.Request) {
+	a.listAttachmentsFor(w, r, "board", r.PathValue("boardId"))
+}
+
+func (a *app) listMessageAttachments(w http.ResponseWriter, r *http.Request) {
+	a.listAttachmentsFor(w, r, "message", r.PathValue("id"))
+}
+
+func (a *app) listAttachmentsFor(w http.ResponseWriter, r *http.Request, parentType, parentID string) {
 	sc, ok := a.sc(w, r)
 	if !ok {
 		return
 	}
-	out, err := a.store.ListAttachments(r.Context(), sc, r.PathValue("id"))
+	out, err := a.store.ListAttachments(r.Context(), sc, parentType, parentID)
 	if err != nil {
 		writeStoreError(w, err, "failed to list attachments")
 		return
@@ -265,7 +280,19 @@ func (a *app) listAttachments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (a *app) createAttachment(w http.ResponseWriter, r *http.Request) {
+func (a *app) createTicketAttachment(w http.ResponseWriter, r *http.Request) {
+	a.createAttachmentFor(w, r, "ticket", r.PathValue("id"))
+}
+
+func (a *app) createBoardAttachment(w http.ResponseWriter, r *http.Request) {
+	a.createAttachmentFor(w, r, "board", r.PathValue("boardId"))
+}
+
+func (a *app) createMessageAttachment(w http.ResponseWriter, r *http.Request) {
+	a.createAttachmentFor(w, r, "message", r.PathValue("id"))
+}
+
+func (a *app) createAttachmentFor(w http.ResponseWriter, r *http.Request, parentType, parentID string) {
 	sc, ok := a.sc(w, r)
 	if !ok {
 		return
@@ -283,7 +310,8 @@ func (a *app) createAttachment(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "Bad Request", "fileId is required")
 		return
 	}
-	out, err := a.store.CreateAttachment(r.Context(), sc, r.PathValue("id"), body.FileID, body.Filename, body.ContentType, body.SizeBytes)
+	out, err := a.store.CreateAttachment(r.Context(), sc, parentType, parentID,
+		body.FileID, body.Filename, body.ContentType, body.SizeBytes)
 	if err != nil {
 		writeStoreError(w, err, "failed to create attachment")
 		return

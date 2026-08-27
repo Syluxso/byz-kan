@@ -221,8 +221,12 @@ func (a *app) routes(j func(http.HandlerFunc) http.HandlerFunc) *http.ServeMux {
 	mux.HandleFunc("PATCH /api/v1/links/{id}", j(a.patchLink))
 	mux.HandleFunc("DELETE /api/v1/links/{id}", j(a.deleteLink))
 
-	mux.HandleFunc("GET /api/v1/tickets/id/{id}/attachments", j(a.listAttachments))
-	mux.HandleFunc("POST /api/v1/tickets/id/{id}/attachments", j(a.createAttachment))
+	mux.HandleFunc("GET /api/v1/tickets/id/{id}/attachments", j(a.listTicketAttachments))
+	mux.HandleFunc("POST /api/v1/tickets/id/{id}/attachments", j(a.createTicketAttachment))
+	mux.HandleFunc("GET /api/v1/boards/{boardId}/attachments", j(a.listBoardAttachments))
+	mux.HandleFunc("POST /api/v1/boards/{boardId}/attachments", j(a.createBoardAttachment))
+	mux.HandleFunc("GET /api/v1/messages/{id}/attachments", j(a.listMessageAttachments))
+	mux.HandleFunc("POST /api/v1/messages/{id}/attachments", j(a.createMessageAttachment))
 	mux.HandleFunc("DELETE /api/v1/attachments/{id}", j(a.deleteAttachment))
 
 	mux.HandleFunc("GET /api/v1/tickets/id/{id}/checklists", j(a.listChecklists))

@@ -387,12 +387,51 @@ func scanLink(row scanner) (LinkView, error) {
 	return l, err
 }
 
-func (s *Store) ListAttachments(ctx context.Context, sc scope, ticketID string) ([]AttachmentView, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id::text, organization_id::text, tenant_id::text, ticket_id::text, file_id::text, filename, content_type, size_bytes, created_by::text, created_at, updated_at, deleted_at
-FROM kan.attachments WHERE ticket_id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND deleted_at IS NULL
+// CW-19: attachments hang off any parent, not just a ticket.
+//
+// COALESCE(parent_type, 'ticket') lets rows written before the migration read
+// correctly even if a backfill were ever missed.
+const attachmentSelect = `
+SELECT id::text, organization_id::text, tenant_id::text, ticket_id::text,
+       COALESCE(parent_type, 'ticket'), COALESCE(parent_id, ticket_id)::text,
+       file_id::text, filename, content_type, size_bytes, created_by::text,
+       created_at, updated_at, deleted_at
+FROM kan.attachments
+`
+
+// AttachmentParents are the things a file may be attached to.
+var AttachmentParents = map[string]bool{"ticket": true, "board": true, "message": true}
+
+// requireParent checks the parent exists and is visible in this scope, so an
+// attachment can never be hung off another tenant's object or a bare UUID.
+func (s *Store) requireParent(ctx context.Context, sc scope, parentType, parentID string) error {
+	if !AttachmentParents[parentType] || !isUUID(parentID) {
+		return errInvalid
+	}
+	switch parentType {
+	case "ticket":
+		_, err := s.GetTicketByID(ctx, sc, parentID)
+		return err
+	case "board":
+		_, err := s.requireLiveBoard(ctx, sc, parentID)
+		return err
+	case "message":
+		_, err := s.GetMessage(ctx, sc, parentID)
+		return err
+	}
+	return errInvalid
+}
+
+func (s *Store) ListAttachments(ctx context.Context, sc scope, parentType, parentID string) ([]AttachmentView, error) {
+	if !AttachmentParents[parentType] || !isUUID(parentID) {
+		return nil, errInvalid
+	}
+	rows, err := s.db.QueryContext(ctx, attachmentSelect+`
+WHERE COALESCE(parent_type, 'ticket') = $1
+  AND COALESCE(parent_id, ticket_id) = $2::uuid
+  AND organization_id = $3::uuid AND tenant_id = $4::uuid AND deleted_at IS NULL
 ORDER BY created_at ASC
-`, ticketID, sc.OrgID, sc.TenantID)
+`, parentType, parentID, sc.OrgID, sc.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -408,18 +447,26 @@ ORDER BY created_at ASC
 	return out, rows.Err()
 }
 
-func (s *Store) CreateAttachment(ctx context.Context, sc scope, ticketID, fileID, filename, contentType string, sizeBytes *int64) (AttachmentView, error) {
+func (s *Store) CreateAttachment(ctx context.Context, sc scope, parentType, parentID, fileID, filename, contentType string, sizeBytes *int64) (AttachmentView, error) {
 	if !isUUID(fileID) {
 		return AttachmentView{}, errInvalid
 	}
-	if _, err := s.GetTicketByID(ctx, sc, ticketID); err != nil {
+	if err := s.requireParent(ctx, sc, parentType, parentID); err != nil {
 		return AttachmentView{}, err
+	}
+	// ticket_id stays populated for ticket parents so the legacy column and its
+	// index remain meaningful for rows written after CW-19.
+	var legacyTicket any
+	if parentType == "ticket" {
+		legacyTicket = parentID
 	}
 	var id string
 	err := s.db.QueryRowContext(ctx, `
-INSERT INTO kan.attachments (organization_id, tenant_id, ticket_id, file_id, filename, content_type, size_bytes, created_by)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8::uuid) RETURNING id::text
-`, sc.OrgID, sc.TenantID, ticketID, fileID, nilIfEmpty(filename), nilIfEmpty(contentType), sizeBytes, nilIfEmpty(sc.ActorID)).Scan(&id)
+INSERT INTO kan.attachments
+  (organization_id, tenant_id, ticket_id, parent_type, parent_id, file_id, filename, content_type, size_bytes, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid, $6::uuid, $7, $8, $9, $10::uuid) RETURNING id::text
+`, sc.OrgID, sc.TenantID, legacyTicket, parentType, parentID, fileID,
+		nilIfEmpty(filename), nilIfEmpty(contentType), sizeBytes, nilIfEmpty(sc.ActorID)).Scan(&id)
 	if err != nil {
 		return AttachmentView{}, err
 	}
@@ -427,9 +474,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8::uuid) RETURNING 
 }
 
 func (s *Store) getAttachment(ctx context.Context, sc scope, id string) (AttachmentView, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id::text, organization_id::text, tenant_id::text, ticket_id::text, file_id::text, filename, content_type, size_bytes, created_by::text, created_at, updated_at, deleted_at
-FROM kan.attachments WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND deleted_at IS NULL
+	row := s.db.QueryRowContext(ctx, attachmentSelect+`
+WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND deleted_at IS NULL
 `, id, sc.OrgID, sc.TenantID)
 	a, err := scanAttachment(row)
 	if err == sql.ErrNoRows {
@@ -455,10 +501,12 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 
 func scanAttachment(row scanner) (AttachmentView, error) {
 	var a AttachmentView
-	var filename, contentType, createdBy sql.NullString
+	var filename, contentType, createdBy, ticketID sql.NullString
 	var size sql.NullInt64
 	var deleted sql.NullTime
-	err := row.Scan(&a.ID, &a.OrganizationID, &a.TenantID, &a.TicketID, &a.FileID, &filename, &contentType, &size, &createdBy, &a.CreatedAt, &a.UpdatedAt, &deleted)
+	err := row.Scan(&a.ID, &a.OrganizationID, &a.TenantID, &ticketID, &a.ParentType, &a.ParentID,
+		&a.FileID, &filename, &contentType, &size, &createdBy, &a.CreatedAt, &a.UpdatedAt, &deleted)
+	a.TicketID = ptrStr(ticketID)
 	a.Filename = ptrStr(filename)
 	a.ContentType = ptrStr(contentType)
 	a.SizeBytes = ptrInt64(size)

@@ -30,7 +30,30 @@ type migration struct {
 }
 
 // migrations are applied in order after SCHEMA.sql.
-var migrations = []migration{}
+var migrations = []migration{
+	{
+		// CW-19: attachments were ticket-only. Generalize to any parent so a
+		// file can hang off a board or an agent message too.
+		//
+		// Backfills existing rows before relaxing ticket_id, so no row is ever
+		// left without a parent. The whole thing is one transaction.
+		Name: "2026-08-attachments-parent-columns",
+		SQL: `
+ALTER TABLE kan.attachments ADD COLUMN IF NOT EXISTS parent_type VARCHAR(16);
+ALTER TABLE kan.attachments ADD COLUMN IF NOT EXISTS parent_id   UUID;
+
+UPDATE kan.attachments
+   SET parent_type = 'ticket', parent_id = ticket_id
+ WHERE parent_type IS NULL AND ticket_id IS NOT NULL;
+
+ALTER TABLE kan.attachments ALTER COLUMN ticket_id DROP NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_attachments_parent
+    ON kan.attachments (parent_type, parent_id, created_at)
+    WHERE deleted_at IS NULL;
+`,
+	},
+}
 
 const migrationsTable = `
 CREATE TABLE IF NOT EXISTS kan.schema_migrations (

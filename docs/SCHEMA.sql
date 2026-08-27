@@ -253,7 +253,13 @@ CREATE TABLE IF NOT EXISTS kan.attachments (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id  UUID NOT NULL,
     tenant_id        UUID NOT NULL,
-    ticket_id        UUID NOT NULL REFERENCES kan.tickets (id),
+    -- Legacy: ticket-only attachments predate parent_type/parent_id (CW-19).
+    -- Nullable now; parent_* is the source of truth. Kept so existing rows and
+    -- the old index remain valid.
+    ticket_id        UUID REFERENCES kan.tickets (id),
+    -- ticket | board | message
+    parent_type      VARCHAR(16),
+    parent_id        UUID,
     file_id          UUID NOT NULL,
     filename         TEXT,
     content_type     TEXT,
@@ -263,6 +269,12 @@ CREATE TABLE IF NOT EXISTS kan.attachments (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at       TIMESTAMPTZ
 );
+
+-- NOTE: the (parent_type, parent_id) index lives in the CW-19 migration, not
+-- here. This file runs BEFORE migrations, so on a database that predates those
+-- columns the index would reference columns that do not exist yet and abort
+-- startup. Column definitions above are safe: they only apply to a fresh
+-- CREATE TABLE, and existing databases get them from the migration.
 
 CREATE INDEX IF NOT EXISTS idx_attachments_ticket
     ON kan.attachments (ticket_id)

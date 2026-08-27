@@ -15,11 +15,11 @@ func (a *app) addAttachmentTools(s *mcp.Server) {
 	// CW-8 attachments
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attachments",
-		Description: "List attachments on a ticket. Attachments reference byz-file-service fileIds; bytes are never stored here.",
+		Description: "List attachments on a ticket, board or agent message. Attachments reference byz-file-service fileIds; bytes are never stored here.",
 	}, a.mcpListAttachments)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "add_attachment",
-		Description: "Attach an existing byz-file-service fileId to a ticket. Upload the file to byz-file-service first.",
+		Description: "Attach an existing byz-file-service fileId to a ticket, board or agent message. Upload the bytes to byz-file-service first.",
 	}, a.mcpAddAttachment)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_attachment",
@@ -73,36 +73,78 @@ func (a *app) addAttachmentTools(s *mcp.Server) {
 
 // ---- attachments (CW-8) ----
 
-type mcpAddAttachmentIn struct {
-	ID          string `json:"id,omitempty" jsonschema:"Ticket UUID; provide id or key"`
-	Key         string `json:"key,omitempty" jsonschema:"Human key like CW-1; provide id or key"`
-	FileID      string `json:"fileId" jsonschema:"byz-file-service file UUID"`
-	Filename    string `json:"filename,omitempty"`
-	ContentType string `json:"contentType,omitempty"`
-	SizeBytes   *int64 `json:"sizeBytes,omitempty"`
+type mcpAttachmentParentIn struct {
+	ParentType string `json:"parentType,omitempty" jsonschema:"ticket, board or message; defaults to ticket"`
+	ParentID   string `json:"parentId,omitempty" jsonschema:"UUID of the parent"`
+	ID         string `json:"id,omitempty" jsonschema:"Ticket UUID, when the parent is a ticket"`
+	Key        string `json:"key,omitempty" jsonschema:"Ticket key like CW-19, when the parent is a ticket"`
 }
 
-func (a *app) mcpListAttachments(ctx context.Context, req *mcp.CallToolRequest, in mcpTicketRefIn) (*mcp.CallToolResult, any, error) {
-	sc, id, err := a.scopeAndTicket(ctx, req, in.ID, in.Key)
+// resolveParent accepts either the general parentType/parentId form or the
+// ticket id/key form the tools used before CW-19, so existing callers keep
+// working.
+func (a *app) resolveParent(ctx context.Context, sc scope, parentType, parentID, id, key string) (string, string, error) {
+	pt := strings.ToLower(strings.TrimSpace(parentType))
+	if pt == "" {
+		pt = "ticket"
+	}
+	if !AttachmentParents[pt] {
+		return "", "", fmt.Errorf("parentType must be ticket, board or message")
+	}
+	if isUUID(parentID) {
+		return pt, parentID, nil
+	}
+	if pt != "ticket" {
+		return "", "", fmt.Errorf("parentId is required for parentType %s", pt)
+	}
+	tid, err := a.resolveTicketID(ctx, sc, id, key)
+	if err != nil {
+		return "", "", err
+	}
+	return "ticket", tid, nil
+}
+
+func (a *app) mcpListAttachments(ctx context.Context, req *mcp.CallToolRequest, in mcpAttachmentParentIn) (*mcp.CallToolResult, any, error) {
+	sc, err := a.scopeFromMCP(ctx, req)
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := a.store.ListAttachments(ctx, sc, id)
+	pt, pid, err := a.resolveParent(ctx, sc, in.ParentType, in.ParentID, in.ID, in.Key)
+	if err != nil {
+		return nil, nil, err
+	}
+	out, err := a.store.ListAttachments(ctx, sc, pt, pid)
 	if err != nil {
 		return nil, nil, err
 	}
 	return mcpJSON(out)
 }
 
+type mcpAddAttachmentIn struct {
+	ParentType  string `json:"parentType,omitempty" jsonschema:"ticket, board or message; defaults to ticket"`
+	ParentID    string `json:"parentId,omitempty" jsonschema:"UUID of the parent"`
+	ID          string `json:"id,omitempty" jsonschema:"Ticket UUID, when the parent is a ticket"`
+	Key         string `json:"key,omitempty" jsonschema:"Ticket key like CW-19, when the parent is a ticket"`
+	FileID      string `json:"fileId" jsonschema:"byz-file-service file UUID; upload the bytes there first"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	SizeBytes   *int64 `json:"sizeBytes,omitempty"`
+}
+
 func (a *app) mcpAddAttachment(ctx context.Context, req *mcp.CallToolRequest, in mcpAddAttachmentIn) (*mcp.CallToolResult, any, error) {
-	sc, id, err := a.scopeAndTicket(ctx, req, in.ID, in.Key)
+	sc, err := a.scopeFromMCP(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	pt, pid, err := a.resolveParent(ctx, sc, in.ParentType, in.ParentID, in.ID, in.Key)
 	if err != nil {
 		return nil, nil, err
 	}
 	if strings.TrimSpace(in.FileID) == "" {
 		return nil, nil, fmt.Errorf("fileId is required")
 	}
-	out, err := a.store.CreateAttachment(ctx, sc, id, strings.TrimSpace(in.FileID), in.Filename, in.ContentType, in.SizeBytes)
+	out, err := a.store.CreateAttachment(ctx, sc, pt, pid,
+		strings.TrimSpace(in.FileID), in.Filename, in.ContentType, in.SizeBytes)
 	if err != nil {
 		return nil, nil, err
 	}

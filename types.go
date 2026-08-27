@@ -147,18 +147,22 @@ type LinkView struct {
 }
 
 type AttachmentView struct {
-	ID             string     `json:"id"`
-	OrganizationID string     `json:"organizationId"`
-	TenantID       string     `json:"tenantId"`
-	TicketID       string     `json:"ticketId"`
-	FileID         string     `json:"fileId"`
-	Filename       *string    `json:"filename"`
-	ContentType    *string    `json:"contentType"`
-	SizeBytes      *int64     `json:"sizeBytes"`
-	CreatedBy      *string    `json:"createdBy"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
-	DeletedAt      *time.Time `json:"deletedAt,omitempty"`
+	ID             string `json:"id"`
+	OrganizationID string `json:"organizationId"`
+	TenantID       string `json:"tenantId"`
+	// TicketID is legacy and set only on ticket attachments created before
+	// CW-19. ParentType/ParentID are the source of truth.
+	TicketID    *string    `json:"ticketId"`
+	ParentType  string     `json:"parentType"`
+	ParentID    string     `json:"parentId"`
+	FileID      string     `json:"fileId"`
+	Filename    *string    `json:"filename"`
+	ContentType *string    `json:"contentType"`
+	SizeBytes   *int64     `json:"sizeBytes"`
+	CreatedBy   *string    `json:"createdBy"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	DeletedAt   *time.Time `json:"deletedAt,omitempty"`
 }
 
 type ChecklistView struct {
