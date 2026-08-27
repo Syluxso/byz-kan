@@ -220,6 +220,7 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 		}
 		return BoardView{}, err
 	}
+	s.publish(sc, "board.updated", id, "", map[string]any{"name": cur.Name, "isPublished": cur.IsPublished})
 	return s.GetBoard(ctx, sc, id)
 }
 
@@ -324,6 +325,7 @@ WHERE board_id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uui
 		return err
 	}
 	_ = s.AppendActivity(ctx, sc.OrgID, sc.TenantID, sc.ActorID, &id, nil, "board.deleted", map[string]any{})
+	s.publish(sc, "board.deleted", id, "", nil)
 	return nil
 }
 

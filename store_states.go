@@ -76,6 +76,7 @@ RETURNING id::text
 	if err := tx.Commit(); err != nil {
 		return StateView{}, err
 	}
+	s.publish(sc, "state.created", boardID, "", map[string]any{"stateId": id, "name": name})
 	return s.GetState(ctx, sc, id)
 }
 
@@ -128,6 +129,7 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 	if err := tx.Commit(); err != nil {
 		return StateView{}, err
 	}
+	s.publish(sc, "state.updated", cur.BoardID, "", map[string]any{"stateId": id, "name": cur.Name})
 	return s.GetState(ctx, sc, id)
 }
 
@@ -192,7 +194,13 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 	if affected == 0 {
 		return errNotFound
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Tickets may have been reassigned to the default state, so the whole
+	// board is stale, not just this swimlane.
+	s.publish(sc, "state.deleted", st.BoardID, "", map[string]any{"stateId": id, "movedTickets": n})
+	return nil
 }
 
 func (s *Store) ReorderStates(ctx context.Context, sc scope, boardID string, ids []string) error {
@@ -217,7 +225,11 @@ WHERE id = $1::uuid AND board_id = $2::uuid AND organization_id = $3::uuid AND t
 			return errNotFound
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.publish(sc, "states.reordered", boardID, "", map[string]any{"stateIds": ids})
+	return nil
 }
 
 func (s *Store) defaultStateID(ctx context.Context, sc scope, boardID string) (string, error) {

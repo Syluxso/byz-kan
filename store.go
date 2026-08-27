@@ -28,10 +28,30 @@ var (
 
 type Store struct {
 	db *sql.DB
+
+	// hub fans mutations out to live SSE subscribers. Optional: nil in tests
+	// that do not exercise streaming, and every publish path is nil-safe.
+	hub *Hub
 }
 
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// publish emits a board event to live subscribers. Safe on a nil hub.
+// Called from store mutations so REST and MCP are covered by one path.
+func (s *Store) publish(sc scope, evType, boardID, ticketID string, payload map[string]any) {
+	if s.hub == nil || boardID == "" {
+		return
+	}
+	s.hub.Publish(sc.OrgID, sc.TenantID, Event{
+		Type:     evType,
+		BoardID:  boardID,
+		TicketID: ticketID,
+		ActorID:  sc.ActorID,
+		At:       time.Now().UTC(),
+		Payload:  payload,
+	})
 }
 
 func (s *Store) init(ctx context.Context) error {

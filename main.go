@@ -37,6 +37,7 @@ type app struct {
 	patSecret   []byte // HS256 key for personal access tokens; set via KAN_PAT_SECRET (hex)
 	httpc       *http.Client
 	brands      map[string]Brand // host → Brand, populated from KAN_BRANDS env var
+	hub         *Hub             // live board event fan-out for SSE subscribers
 }
 
 func main() {
@@ -63,6 +64,8 @@ func main() {
 	db.SetConnMaxLifetime(time.Hour)
 
 	store := NewStore(db)
+	hub := NewHub()
+	store.hub = hub
 	ctx0 := context.Background()
 	if err := store.init(ctx0); err != nil {
 		log.Fatalf("db init: %v", err)
@@ -86,6 +89,7 @@ func main() {
 		patSecret:   patSecret,
 		httpc:       &http.Client{Timeout: 15 * time.Second},
 		brands:      brands,
+		hub:         hub,
 	}
 	if iamClientID == "" {
 		log.Printf("warning: KAN_IAM_CLIENT_ID unset — Grok OAuth login will fail until set")
@@ -153,6 +157,7 @@ func (a *app) routes(j func(http.HandlerFunc) http.HandlerFunc) *http.ServeMux {
 	mux.HandleFunc("PATCH /api/v1/boards/{id}", j(a.patchBoard))
 	mux.HandleFunc("DELETE /api/v1/boards/{id}", j(a.deleteBoard))
 	mux.HandleFunc("GET /api/v1/boards/{id}/activity", j(a.boardActivity))
+	mux.HandleFunc("GET /api/v1/boards/{boardId}/events", j(a.boardEvents))
 	mux.HandleFunc("GET /api/v1/boards/{id}/members", j(a.listMembers))
 	mux.HandleFunc("POST /api/v1/boards/{id}/members", j(a.addMember))
 	mux.HandleFunc("DELETE /api/v1/boards/{id}/members/{userId}", j(a.removeMember))

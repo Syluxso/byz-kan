@@ -96,6 +96,7 @@ INSERT INTO kan.tickets (
 		return TicketView{}, err
 	}
 	_ = s.AppendActivity(ctx, sc.OrgID, sc.TenantID, sc.ActorID, &boardID, &id, "ticket.created", map[string]any{"key": key})
+	s.publish(sc, "ticket.created", boardID, id, map[string]any{"key": key, "stateId": stateID})
 	return s.GetTicketByID(ctx, sc, id)
 }
 
@@ -233,6 +234,7 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 	if err != nil {
 		return TicketView{}, err
 	}
+	s.publish(sc, "ticket.updated", cur.BoardID, id, map[string]any{"key": cur.Key})
 	return s.GetTicketByID(ctx, sc, id)
 }
 
@@ -267,6 +269,12 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 		return TicketView{}, err
 	}
 	_ = s.AppendActivity(ctx, sc.OrgID, sc.TenantID, sc.ActorID, &cur.BoardID, &id, "ticket.moved", map[string]any{"stateId": stateID})
+	s.publish(sc, "ticket.moved", cur.BoardID, id, map[string]any{
+		"key":         cur.Key,
+		"stateId":     stateID,
+		"fromStateId": cur.StateID,
+		"completedAt": completed,
+	})
 	return s.GetTicketByID(ctx, sc, id)
 }
 
@@ -321,6 +329,7 @@ WHERE id = $1::uuid AND organization_id = $2::uuid AND tenant_id = $3::uuid AND 
 		return err
 	}
 	_ = s.AppendActivity(ctx, sc.OrgID, sc.TenantID, sc.ActorID, &cur.BoardID, &id, "ticket.deleted", map[string]any{})
+	s.publish(sc, "ticket.deleted", cur.BoardID, id, map[string]any{"key": cur.Key})
 	return nil
 }
 

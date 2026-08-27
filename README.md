@@ -72,7 +72,34 @@ Tools: `list_boards`, `create_board`, `list_tickets`, `create_ticket`, `get_tick
 | GET/POST | `/tickets/id/{id}/time-entries` |
 | PATCH/DELETE | `/time-entries/{id}` |
 | GET | `/tickets/id/{id}/activity`, `/boards/{id}/activity` |
+| GET | `/boards/{boardId}/events` — SSE live board stream |
 | GET | `/admin/logs`, `/admin/db/tables` |
+
+### Live board updates (SSE)
+
+`GET /api/v1/boards/{boardId}/events` streams board mutations as they happen
+(`text/event-stream`), so an open board reflects other people's and agents' edits
+without polling. Events are published from the store layer, so MCP mutations
+stream identically to REST ones.
+
+Emitted: `ticket.created|updated|moved|deleted`, `state.created|updated|deleted`,
+`states.reordered`, `board.updated|deleted`. Envelope:
+
+```json
+{ "type": "ticket.moved", "boardId": "…", "ticketId": "…",
+  "actorId": "…", "at": "2026-08-26T23:59:00Z", "payload": { "stateId": "…" } }
+```
+
+Notes:
+
+- Browser `EventSource` cannot set an `Authorization` header — use a fetch-based
+  SSE reader. A token in the query string is deliberately not accepted.
+- Live-only: no replay/`Last-Event-ID`. Refetch the board on reconnect.
+- Fan-out is in-process. Correct for the current single-process deploy; if
+  byz-kan is ever scaled horizontally this must move to Postgres `LISTEN/NOTIFY`
+  or each instance will only see its own writes.
+- The handler sets `X-Accel-Buffering: no` and flushes per event, but the
+  **gateway must also not buffer this path** or events arrive batched or never.
 
 ## Tests
 
