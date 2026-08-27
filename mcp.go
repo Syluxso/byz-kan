@@ -66,6 +66,7 @@ func (a *app) newMCPServer() *mcp.Server {
 	a.addTicketTools(s)     // CW-3
 	a.addCollabTools(s)     // CW-4, CW-5, CW-6, CW-7
 	a.addAttachmentTools(s) // CW-8, CW-9, CW-10
+	a.addMessageTools(s)    // CW-18
 
 	return s
 }

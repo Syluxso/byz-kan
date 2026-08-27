@@ -368,3 +368,39 @@ CREATE TABLE IF NOT EXISTS kan.oauth_codes (
     expires_at      TIMESTAMPTZ NOT NULL,
     used_at         TIMESTAMPTZ
 );
+
+-- ---------------------------------------------------------------------------
+-- messages (CW-18 — shared agent/human thread, board- or ticket-scoped)
+--
+-- Deliberately separate from kan.comments. Comments are product discussion on
+-- a ticket; messages are coordination between agents and humans, board-level
+-- or ticket-level, and are pruned and surfaced independently.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS kan.messages (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id  UUID NOT NULL,
+    tenant_id        UUID NOT NULL,
+    board_id         UUID NOT NULL REFERENCES kan.boards (id),
+    -- NULL means the board-level thread rather than a specific ticket.
+    ticket_id        UUID REFERENCES kan.tickets (id),
+    actor_type       VARCHAR(16) NOT NULL DEFAULT 'agent',
+    -- Stable per participant so two Groks do not collide.
+    actor_key        TEXT NOT NULL,
+    display_name     TEXT NOT NULL,
+    body             TEXT NOT NULL,
+    created_by       UUID,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at       TIMESTAMPTZ,
+    CONSTRAINT ck_messages_actor_type CHECK (actor_type IN ('user', 'agent'))
+);
+
+-- Board thread, oldest first.
+CREATE INDEX IF NOT EXISTS idx_messages_board
+    ON kan.messages (board_id, created_at)
+    WHERE deleted_at IS NULL;
+
+-- Ticket thread, oldest first.
+CREATE INDEX IF NOT EXISTS idx_messages_ticket
+    ON kan.messages (ticket_id, created_at)
+    WHERE deleted_at IS NULL AND ticket_id IS NOT NULL;

@@ -89,6 +89,24 @@ type PersonLinkView struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
+// MessageView is one entry in the shared agent/human thread (CW-18).
+// TicketID is nil for the board-level thread.
+type MessageView struct {
+	ID             string     `json:"id"`
+	OrganizationID string     `json:"organizationId"`
+	TenantID       string     `json:"tenantId"`
+	BoardID        string     `json:"boardId"`
+	TicketID       *string    `json:"ticketId"`
+	ActorType      string     `json:"actorType"`
+	ActorKey       string     `json:"actorKey"`
+	DisplayName    string     `json:"displayName"`
+	Body           string     `json:"body"`
+	CreatedBy      *string    `json:"createdBy"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	DeletedAt      *time.Time `json:"deletedAt,omitempty"`
+}
+
 type TagView struct {
 	ID             string     `json:"id"`
 	OrganizationID string     `json:"organizationId"`
