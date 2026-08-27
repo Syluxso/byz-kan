@@ -127,7 +127,7 @@ func (a *app) handleASMeta(w http.ResponseWriter, r *http.Request) {
 		"token_endpoint":                        base + "/oauth/token",
 		"registration_endpoint":                 base + "/oauth/register",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		"scopes_supported":                      []string{"kan"},
@@ -292,7 +292,13 @@ func (a *app) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		vals = r.Form
 	}
 	grant := vals.Get("grant_type")
-	if grant != "authorization_code" {
+	switch grant {
+	case "authorization_code":
+		// handled below
+	case "refresh_token":
+		a.handleRefreshGrant(w, r, vals)
+		return
+	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 		return
 	}
@@ -410,6 +416,103 @@ func (a *app) iamLogin(ctx context.Context, email, password, iamHostOverride, cl
 	}
 	if tr.AccessToken == "" {
 		return "", "", 0, fmt.Errorf("iam login empty token")
+	}
+	if tr.ExpiresIn <= 0 {
+		tr.ExpiresIn = 3600
+	}
+	return tr.AccessToken, tr.RefreshToken, tr.ExpiresIn, nil
+}
+
+// handleRefreshGrant renews an access token without a browser round trip.
+//
+// Without this an OAuth session dies when the IAM access token expires (~1h)
+// and the only way back is a fresh interactive login — which is exactly why
+// long-lived personal access tokens got used instead. byz-kan holds no state
+// here: the client presents the refresh token, byz-kan exchanges it with IAM
+// and hands back the new pair.
+func (a *app) handleRefreshGrant(w http.ResponseWriter, r *http.Request, vals url.Values) {
+	refresh := strings.TrimSpace(vals.Get("refresh_token"))
+	if refresh == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	// Resolve the brand from the request host, exactly as the authorize flow
+	// does, so a renewed token keeps the issuer the client was minted against
+	// rather than silently reverting to the Byzantine default.
+	var iamHostOverride, iamClientOverride string
+	if b := a.brandFrom(r); b != nil {
+		if u, err := url.Parse(b.IssuerURL); err == nil {
+			iamHostOverride = u.Host
+		}
+		iamClientOverride = b.ClientID
+	}
+
+	access, newRefresh, expiresIn, err := a.iamRefresh(r.Context(), refresh, iamHostOverride, iamClientOverride)
+	if err != nil {
+		// A rejected refresh token is invalid_grant, not a server error: the
+		// client should start a new authorization, not retry.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
+
+	out := map[string]any{
+		"access_token": access,
+		"token_type":   "Bearer",
+		"expires_in":   expiresIn,
+		"scope":        "kan",
+	}
+	// Return a refresh token on this grant too. IAM may rotate it; when it does
+	// not, echo the one we were given so a client that replaces its stored copy
+	// on every refresh is not left without one.
+	if newRefresh != "" {
+		out["refresh_token"] = newRefresh
+	} else {
+		out["refresh_token"] = refresh
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// iamRefresh exchanges a refresh token with byz-iam for a new token pair.
+// Mirrors iamLogin: same client resolution, same X-Forwarded-Host trick so the
+// brand's issuer is preserved.
+func (a *app) iamRefresh(ctx context.Context, refreshToken, iamHostOverride, clientIDOverride string) (access, refresh string, expiresIn int, err error) {
+	clientID := a.iamClientID
+	if clientIDOverride != "" {
+		clientID = clientIDOverride
+	}
+	payload, _ := json.Marshal(map[string]string{
+		"refreshToken": refreshToken,
+		"clientId":     clientID,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(a.iamURL, "/")+"/api/v1/oauth/refresh", bytes.NewReader(payload))
+	if err != nil {
+		return "", "", 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if iamHostOverride != "" {
+		req.Header.Set("X-Forwarded-Host", iamHostOverride)
+	}
+	resp, err := a.httpc.Do(req)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return "", "", 0, fmt.Errorf("iam refresh %d", resp.StatusCode)
+	}
+	var tr struct {
+		AccessToken  string `json:"accessToken"`
+		RefreshToken string `json:"refreshToken"`
+		ExpiresIn    int    `json:"expiresIn"`
+	}
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return "", "", 0, err
+	}
+	if tr.AccessToken == "" {
+		return "", "", 0, fmt.Errorf("iam refresh empty token")
 	}
 	if tr.ExpiresIn <= 0 {
 		tr.ExpiresIn = 3600
