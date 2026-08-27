@@ -117,7 +117,16 @@ WHERE t.id = $1::uuid AND t.organization_id = $2::uuid AND t.tenant_id = $3::uui
 	if err == sql.ErrNoRows {
 		return TicketView{}, errNotFound
 	}
-	return v, err
+	if err != nil {
+		return TicketView{}, err
+	}
+	// Same shape as the list endpoints: a caller should not have to know which
+	// read populates tags and which does not.
+	one := []TicketView{v}
+	if err := s.attachTags(ctx, sc, one); err != nil {
+		return TicketView{}, err
+	}
+	return one[0], nil
 }
 
 func (s *Store) GetTicketByKey(ctx context.Context, sc scope, key string) (TicketView, error) {
@@ -130,7 +139,14 @@ WHERE t.organization_id = $1::uuid AND t.tenant_id = $2::uuid AND upper(t.key) =
 	if err == sql.ErrNoRows {
 		return TicketView{}, errNotFound
 	}
-	return v, err
+	if err != nil {
+		return TicketView{}, err
+	}
+	one := []TicketView{v}
+	if err := s.attachTags(ctx, sc, one); err != nil {
+		return TicketView{}, err
+	}
+	return one[0], nil
 }
 
 func (s *Store) ListTickets(ctx context.Context, sc scope, p ListTicketsParams) ([]TicketView, error) {
@@ -195,7 +211,13 @@ LIMIT 500
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachTags(ctx, sc, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) UpdateTicket(ctx context.Context, sc scope, id string, title, body, ticketType *string, priority, position, estimate *int, clearEstimate bool, dueAt *time.Time, clearDue bool, parentID *string, clearParent bool, cardData []byte) (TicketView, error) {
@@ -382,6 +404,59 @@ func scanTicket(row scanner) (TicketView, error) {
 	v.CreatedBy = ptrStr(createdBy)
 	v.DeletedAt = ptrTime(deleted)
 	return v, nil
+}
+
+// attachTags fills Tags on the given tickets using ONE query for the whole set.
+// CW-16: the board renders tag chips per card, so a per-ticket lookup would be
+// N+1 on every board load.
+func (s *Store) attachTags(ctx context.Context, sc scope, tickets []TicketView) error {
+	if len(tickets) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(tickets))
+	for _, t := range tickets {
+		ids = append(ids, t.ID)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT tt.ticket_id::text,
+       tg.id::text, tg.organization_id::text, tg.tenant_id::text, tg.name, tg.kind,
+       tg.color, tg.created_by::text, tg.created_at, tg.updated_at, tg.deleted_at
+FROM kan.ticket_tags tt
+JOIN kan.tags tg ON tg.id = tt.tag_id
+WHERE tt.ticket_id = ANY($1::uuid[])
+  AND tt.deleted_at IS NULL AND tg.deleted_at IS NULL
+  AND tg.organization_id = $2::uuid AND tg.tenant_id = $3::uuid
+ORDER BY lower(tg.name) ASC
+`, pgTextArray(ids), sc.OrgID, sc.TenantID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byTicket := make(map[string][]TagView, len(tickets))
+	for rows.Next() {
+		var ticketID string
+		var tag TagView
+		var color, createdBy sql.NullString
+		var deleted sql.NullTime
+		if err := rows.Scan(&ticketID, &tag.ID, &tag.OrganizationID, &tag.TenantID,
+			&tag.Name, &tag.Kind, &color, &createdBy, &tag.CreatedAt, &tag.UpdatedAt, &deleted); err != nil {
+			return err
+		}
+		tag.Color = ptrStr(color)
+		tag.CreatedBy = ptrStr(createdBy)
+		tag.DeletedAt = ptrTime(deleted)
+		byTicket[ticketID] = append(byTicket[ticketID], tag)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range tickets {
+		tickets[i].Tags = byTicket[tickets[i].ID]
+	}
+	return nil
 }
 
 func itoa(n int) string {

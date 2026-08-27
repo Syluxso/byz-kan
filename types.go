@@ -61,6 +61,10 @@ type TicketView struct {
 	CreatedAt       time.Time       `json:"createdAt"`
 	UpdatedAt       time.Time       `json:"updatedAt"`
 	DeletedAt       *time.Time      `json:"deletedAt,omitempty"`
+
+	// Tags is populated on reads (list and get) so a board can render tag
+	// chips without a request per card. Omitted when the ticket has none.
+	Tags []TagView `json:"tags,omitempty"`
 }
 
 type MemberView struct {

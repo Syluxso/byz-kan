@@ -59,6 +59,30 @@ func (s *Store) init(ctx context.Context) error {
 	return err
 }
 
+// pgTextArray renders values as a Postgres array literal, e.g. {"a","b"}.
+// database/sql cannot bind a Go slice, and the values here are ids rather than
+// user text, but quote and backslash are still escaped so the literal cannot be
+// broken out of.
+func pgTextArray(values []string) string {
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, v := range values {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('"')
+		for _, r := range v {
+			if r == '"' || r == '\\' {
+				b.WriteByte('\\')
+			}
+			b.WriteRune(r)
+		}
+		b.WriteByte('"')
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
 func (s *Store) CountActive(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx,
