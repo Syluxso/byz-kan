@@ -56,6 +56,37 @@ func TestMCPUnauthorizedHasResourceMetadata(t *testing.T) {
 	}
 }
 
+func TestMCPUnauthorizedUsesBrandPublicURL(t *testing.T) {
+	a := &app{
+		store:     &Store{},
+		logBuf:    NewLogBuffer(),
+		publicURL: "https://api.byzantineapp.dev/kan",
+		brands: map[string]Brand{
+			"mcp.cardwallah.com": {Name: "Cardwallah", PublicURL: "https://mcp.cardwallah.com"},
+		},
+	}
+	h := withCORS(a.routes(func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			withJWT(nil, nil, a.resourcePublicURL(r), next)(w, r)
+		}
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Host", "mcp.cardwallah.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+	}
+	wa := rec.Header().Get("WWW-Authenticate")
+	if !strings.Contains(wa, "https://mcp.cardwallah.com/.well-known/oauth-protected-resource") {
+		t.Fatalf("WWW-Authenticate=%q", wa)
+	}
+	if strings.Contains(wa, "byzantineapp.dev") {
+		t.Fatalf("brand 401 leaked byzantine URL: %q", wa)
+	}
+}
+
 func TestOAuthTokenPKCE(t *testing.T) {
 	st := testDB(t)
 	if err := st.initOAuth(t.Context()); err != nil {
