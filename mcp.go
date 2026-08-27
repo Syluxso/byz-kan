@@ -61,6 +61,10 @@ func (a *app) newMCPServer() *mcp.Server {
 		Description: "Log time on a ticket in minutes (or start/end timestamps). Updates loggedMinutes.",
 	}, a.mcpLogTime)
 
+	a.addBoardTools(s)  // CW-1, CW-11
+	a.addStateTools(s)  // CW-2
+	a.addTicketTools(s) // CW-3
+
 	return s
 }
 
@@ -164,8 +168,11 @@ func (a *app) mcpListStates(ctx context.Context, req *mcp.CallToolRequest, in mc
 }
 
 type mcpListTicketsIn struct {
-	BoardID string `json:"boardId,omitempty" jsonschema:"Optional board UUID"`
-	Q       string `json:"q,omitempty" jsonschema:"Search title, body, or key"`
+	BoardID  string `json:"boardId,omitempty" jsonschema:"Optional board UUID"`
+	StateID  string `json:"stateId,omitempty" jsonschema:"Only tickets in this swimlane; resolve names with list_states"`
+	Assignee string `json:"assignee,omitempty" jsonschema:"Only tickets assigned to this user UUID"`
+	TagID    string `json:"tagId,omitempty" jsonschema:"Only tickets carrying this tag UUID"`
+	Q        string `json:"q,omitempty" jsonschema:"Search title, body, or key"`
 }
 
 func (a *app) mcpListTickets(ctx context.Context, req *mcp.CallToolRequest, in mcpListTicketsIn) (*mcp.CallToolResult, any, error) {
@@ -173,7 +180,13 @@ func (a *app) mcpListTickets(ctx context.Context, req *mcp.CallToolRequest, in m
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := a.store.ListTickets(ctx, sc, ListTicketsParams{BoardID: in.BoardID, Q: in.Q})
+	out, err := a.store.ListTickets(ctx, sc, ListTicketsParams{
+		BoardID:    in.BoardID,
+		StateID:    in.StateID,
+		AssigneeID: in.Assignee,
+		TagID:      in.TagID,
+		Q:          in.Q,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

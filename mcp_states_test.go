@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -125,4 +126,24 @@ func TestMCPListStatesTenantIsolation(t *testing.T) {
 	if len(leaked) != 0 {
 		t.Fatalf("foreign tenant saw %d states from tenant %s", len(leaked), tenant)
 	}
+}
+
+// isToolError reports whether a JSON-RPC response carries an error, either at
+// the protocol level or as an isError tool result.
+func isToolError(body string) bool {
+	var rpc struct {
+		Error  *json.RawMessage `json:"error"`
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(body), &rpc); err != nil {
+		return false
+	}
+	return rpc.Error != nil || rpc.Result.IsError
+}
+
+// containsJSON reports whether raw JSON contains the given substring.
+func containsJSON(raw []byte, want string) bool {
+	return strings.Contains(string(raw), want)
 }

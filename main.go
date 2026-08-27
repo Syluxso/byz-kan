@@ -94,7 +94,13 @@ func main() {
 	if iamClientID == "" {
 		log.Printf("warning: KAN_IAM_CLIENT_ID unset — Grok OAuth login will fail until set")
 	}
-	mux := a.routes(func(h http.HandlerFunc) http.HandlerFunc { return withJWT(jwks, patSecret, publicURL, h) })
+	// Resolve the advertised resource URL per request, so a 401 on a branded
+	// host points at that brand's metadata rather than the Byzantine default.
+	mux := a.routes(func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			withJWT(jwks, patSecret, a.resourcePublicURL(r), h)(w, r)
+		}
+	})
 
 	srv := &http.Server{
 		Addr:              addr,

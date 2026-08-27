@@ -82,6 +82,21 @@ func (a *app) brandFrom(r *http.Request) *Brand {
 	return nil
 }
 
+// resourcePublicURL returns the public base URL to advertise for this request's
+// host: the brand's PublicURL when the Host matches a brand, otherwise the
+// global KAN_PUBLIC_URL.
+//
+// This must be used for the 401 WWW-Authenticate resource_metadata pointer.
+// Using the global publicURL there sends an unauthenticated MCP client to the
+// Byzantine domain even when it called a branded host, and it then authenticates
+// against the wrong issuer and stays there.
+func (a *app) resourcePublicURL(r *http.Request) string {
+	if b := a.brandFrom(r); b != nil && strings.TrimSpace(b.PublicURL) != "" {
+		return strings.TrimRight(b.PublicURL, "/")
+	}
+	return strings.TrimRight(a.publicURL, "/")
+}
+
 func (a *app) handlePRM(w http.ResponseWriter, r *http.Request) {
 	base := a.publicBase()
 	if b := a.brandFrom(r); b != nil {
