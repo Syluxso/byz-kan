@@ -73,6 +73,7 @@ Tools: `list_boards`, `create_board`, `list_tickets`, `create_ticket`, `get_tick
 | PATCH/DELETE | `/time-entries/{id}` |
 | GET | `/tickets/id/{id}/activity`, `/boards/{id}/activity` |
 | GET | `/boards/{boardId}/events` — SSE live board stream |
+| GET | `/tickets?boardId=&tag=mcp` — filter a board by tag name |
 | GET | `/admin/logs`, `/admin/db/tables` |
 
 ### Live board updates (SSE)

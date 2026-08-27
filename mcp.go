@@ -174,6 +174,7 @@ type mcpListTicketsIn struct {
 	StateID  string `json:"stateId,omitempty" jsonschema:"Only tickets in this swimlane; resolve names with list_states"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"Only tickets assigned to this user UUID"`
 	TagID    string `json:"tagId,omitempty" jsonschema:"Only tickets carrying this tag UUID"`
+	Tag      string `json:"tag,omitempty" jsonschema:"Only tickets carrying this tag by name, e.g. mcp or #mcp. Combine with boardId to work one feature slice of a board."`
 	Q        string `json:"q,omitempty" jsonschema:"Search title, body, or key"`
 }
 
@@ -187,6 +188,7 @@ func (a *app) mcpListTickets(ctx context.Context, req *mcp.CallToolRequest, in m
 		StateID:    in.StateID,
 		AssigneeID: in.Assignee,
 		TagID:      in.TagID,
+		TagName:    in.Tag,
 		Q:          in.Q,
 	})
 	if err != nil {

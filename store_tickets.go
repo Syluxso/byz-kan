@@ -12,7 +12,14 @@ type ListTicketsParams struct {
 	StateID    string
 	AssigneeID string
 	TagID      string
+	TagName    string // CW-14: filter by tag name; "#mcp" and "mcp" are the same tag
 	Q          string
+}
+
+// normalizeTagName makes "#mcp", " #MCP " and "mcp" the same tag reference.
+// Tags are unique per (tenant, lower(name), kind), so matching is case-insensitive.
+func normalizeTagName(s string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))
 }
 
 func (s *Store) CreateTicket(ctx context.Context, sc scope, boardID, stateID, parentID, title, body, ticketType string, priority, position int, dueAt *time.Time, estimate *int, cardData []byte) (TicketView, error) {
@@ -153,6 +160,18 @@ WHERE t.organization_id = $1::uuid AND t.tenant_id = $2::uuid
 		n++
 		q += ` AND EXISTS (SELECT 1 FROM kan.ticket_tags tt WHERE tt.ticket_id = t.id AND tt.tag_id = $` + itoa(n) + `::uuid AND tt.deleted_at IS NULL)`
 		args = append(args, p.TagID)
+	}
+	if name := normalizeTagName(p.TagName); name != "" {
+		// Scope the tag to the caller's tenant as well as the ticket, so a tag
+		// name can never reach across tenants.
+		n++
+		q += ` AND EXISTS (
+  SELECT 1 FROM kan.ticket_tags tt
+  JOIN kan.tags tg ON tg.id = tt.tag_id
+  WHERE tt.ticket_id = t.id AND tt.deleted_at IS NULL
+    AND tg.deleted_at IS NULL AND tg.tenant_id = t.tenant_id
+    AND lower(tg.name) = lower($` + itoa(n) + `))`
+		args = append(args, name)
 	}
 	if strings.TrimSpace(p.Q) != "" {
 		n++

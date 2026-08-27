@@ -38,6 +38,11 @@ func (s *Store) CreateTag(ctx context.Context, sc scope, name, kind, color strin
 	if kind == "" {
 		kind = "label"
 	}
+	// CW-14: store the bare slug so "#mcp" and "mcp" cannot become two tags.
+	name = normalizeTagName(name)
+	if name == "" {
+		return TagView{}, errInvalid
+	}
 	var id string
 	err := s.db.QueryRowContext(ctx, `
 INSERT INTO kan.tags (organization_id, tenant_id, name, kind, color, created_by)
@@ -71,7 +76,10 @@ func (s *Store) UpdateTag(ctx context.Context, sc scope, id string, name, kind, 
 		return TagView{}, err
 	}
 	if name != nil {
-		cur.Name = strings.TrimSpace(*name)
+		cur.Name = normalizeTagName(*name)
+		if cur.Name == "" {
+			return TagView{}, errInvalid
+		}
 	}
 	if kind != nil {
 		cur.Kind = *kind

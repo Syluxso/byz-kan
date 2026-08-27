@@ -19,6 +19,7 @@ func (a *app) listTickets(w http.ResponseWriter, r *http.Request) {
 		StateID:    q.Get("stateId"),
 		AssigneeID: q.Get("assignee"),
 		TagID:      q.Get("tagId"),
+		TagName:    q.Get("tag"),
 		Q:          q.Get("q"),
 	})
 	if err != nil {
@@ -40,6 +41,7 @@ func (a *app) listTenantTickets(w http.ResponseWriter, r *http.Request) {
 		StateID:    q.Get("stateId"),
 		AssigneeID: q.Get("assignee"),
 		TagID:      q.Get("tagId"),
+		TagName:    q.Get("tag"),
 		Q:          q.Get("q"),
 	})
 	if err != nil {
