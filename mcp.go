@@ -61,9 +61,11 @@ func (a *app) newMCPServer() *mcp.Server {
 		Description: "Log time on a ticket in minutes (or start/end timestamps). Updates loggedMinutes.",
 	}, a.mcpLogTime)
 
-	a.addBoardTools(s)  // CW-1, CW-11
-	a.addStateTools(s)  // CW-2
-	a.addTicketTools(s) // CW-3
+	a.addBoardTools(s)      // CW-1, CW-11
+	a.addStateTools(s)      // CW-2
+	a.addTicketTools(s)     // CW-3
+	a.addCollabTools(s)     // CW-4, CW-5, CW-6, CW-7
+	a.addAttachmentTools(s) // CW-8, CW-9, CW-10
 
 	return s
 }
@@ -262,20 +264,32 @@ func (a *app) mcpMoveTicket(ctx context.Context, req *mcp.CallToolRequest, in mc
 }
 
 type mcpLogTimeIn struct {
-	TicketID string `json:"ticketId" jsonschema:"Ticket UUID"`
-	Minutes  int    `json:"minutes,omitempty" jsonschema:"Duration in minutes"`
-	Note     string `json:"note,omitempty"`
+	TicketID  string `json:"ticketId,omitempty" jsonschema:"Ticket UUID; provide ticketId or key"`
+	Key       string `json:"key,omitempty" jsonschema:"Human key like CW-1; provide ticketId or key"`
+	Minutes   int    `json:"minutes,omitempty" jsonschema:"Duration in minutes; omit if passing startedAt and endedAt"`
+	StartedAt string `json:"startedAt,omitempty" jsonschema:"RFC3339 timestamp; with endedAt the duration is computed"`
+	EndedAt   string `json:"endedAt,omitempty" jsonschema:"RFC3339 timestamp"`
+	Note      string `json:"note,omitempty"`
 }
 
 func (a *app) mcpLogTime(ctx context.Context, req *mcp.CallToolRequest, in mcpLogTimeIn) (*mcp.CallToolResult, any, error) {
-	sc, err := a.scopeFromMCP(ctx, req)
+	sc, id, err := a.scopeAndTicket(ctx, req, in.TicketID, in.Key)
 	if err != nil {
 		return nil, nil, err
 	}
-	if !isUUID(in.TicketID) || in.Minutes <= 0 {
-		return nil, nil, fmt.Errorf("ticketId and minutes (>0) are required")
+	started, err := parseOptionalRFC3339(in.StartedAt, "startedAt")
+	if err != nil {
+		return nil, nil, err
 	}
-	out, err := a.store.CreateTimeEntry(ctx, sc, in.TicketID, sc.ActorID, nil, nil, in.Minutes, in.Note)
+	ended, err := parseOptionalRFC3339(in.EndedAt, "endedAt")
+	if err != nil {
+		return nil, nil, err
+	}
+	// CW-10: accept either an explicit duration or a start/end pair.
+	if in.Minutes <= 0 && (started == nil || ended == nil) {
+		return nil, nil, fmt.Errorf("provide minutes (>0), or both startedAt and endedAt")
+	}
+	out, err := a.store.CreateTimeEntry(ctx, sc, id, sc.ActorID, started, ended, in.Minutes, in.Note)
 	if err != nil {
 		return nil, nil, err
 	}

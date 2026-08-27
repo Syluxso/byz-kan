@@ -24,6 +24,20 @@ func (a *app) addTicketTools(s *mcp.Server) {
 	}, a.mcpDeleteTicket)
 }
 
+// scopeAndTicket resolves the caller scope and a ticket UUID in one step, since
+// nearly every ticket-scoped tool needs both and accepts id-or-key.
+func (a *app) scopeAndTicket(ctx context.Context, req *mcp.CallToolRequest, id, key string) (scope, string, error) {
+	sc, err := a.scopeFromMCP(ctx, req)
+	if err != nil {
+		return scope{}, "", err
+	}
+	tid, err := a.resolveTicketID(ctx, sc, id, key)
+	if err != nil {
+		return scope{}, "", err
+	}
+	return sc, tid, nil
+}
+
 // resolveTicketID accepts either a UUID or a human key (CW-1) and returns the UUID.
 func (a *app) resolveTicketID(ctx context.Context, sc scope, id, key string) (string, error) {
 	if isUUID(id) {
