@@ -84,7 +84,53 @@ WHERE organization_id = $1::uuid AND tenant_id = $2::uuid
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachMessageFiles(ctx, sc, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// attachMessageFiles fills Attachments for a whole thread in ONE query.
+// Rendering a thread must not cost a request per message (the N+1 the board
+// avoids in CW-16).
+func (s *Store) attachMessageFiles(ctx context.Context, sc scope, msgs []MessageView) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		ids = append(ids, m.ID)
+	}
+
+	rows, err := s.db.QueryContext(ctx, attachmentSelect+`
+WHERE COALESCE(parent_type, '') = 'message'
+  AND parent_id = ANY($1::uuid[])
+  AND organization_id = $2::uuid AND tenant_id = $3::uuid AND deleted_at IS NULL
+ORDER BY created_at ASC
+`, pgTextArray(ids), sc.OrgID, sc.TenantID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byMessage := make(map[string][]AttachmentView, len(msgs))
+	for rows.Next() {
+		a, err := scanAttachment(rows)
+		if err != nil {
+			return err
+		}
+		byMessage[a.ParentID] = append(byMessage[a.ParentID], a)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range msgs {
+		msgs[i].Attachments = byMessage[msgs[i].ID]
+	}
+	return nil
 }
 
 func (s *Store) GetMessage(ctx context.Context, sc scope, id string) (MessageView, error) {

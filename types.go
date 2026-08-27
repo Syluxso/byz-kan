@@ -105,6 +105,10 @@ type MessageView struct {
 	CreatedAt      time.Time  `json:"createdAt"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
 	DeletedAt      *time.Time `json:"deletedAt,omitempty"`
+
+	// Attachments arrive with the thread so a client rendering N messages does
+	// not issue N requests for files. Omitted when the message has none.
+	Attachments []AttachmentView `json:"attachments,omitempty"`
 }
 
 type TagView struct {
