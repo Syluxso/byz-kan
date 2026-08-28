@@ -41,10 +41,10 @@ func (s *Store) CreateTicket(ctx context.Context, sc scope, boardID, stateID, pa
 			return TicketView{}, errInvalid
 		}
 	}
-	if ticketType == "" {
-		ticketType = "ticket"
-	}
-	if ticketType != "ticket" && ticketType != "defect" {
+	// CW-31: story | defect | spike | chore, with "ticket" kept as a legacy
+	// alias for story. An empty type means story.
+	ticketType, okType := normalizeTicketType(ticketType)
+	if !okType {
 		return TicketView{}, errInvalid
 	}
 	if cardData == nil {
@@ -235,10 +235,11 @@ func (s *Store) UpdateTicket(ctx context.Context, sc scope, id string, title, bo
 		cur.Body = body
 	}
 	if ticketType != nil {
-		if *ticketType != "ticket" && *ticketType != "defect" {
+		norm, okType := normalizeTicketType(*ticketType)
+		if !okType {
 			return TicketView{}, errInvalid
 		}
-		cur.TicketType = *ticketType
+		cur.TicketType = norm
 	}
 	if priority != nil {
 		cur.Priority = *priority
@@ -261,8 +262,11 @@ func (s *Store) UpdateTicket(ctx context.Context, sc scope, id string, title, bo
 	} else if parentID != nil {
 		cur.ParentTicketID = parentID
 	}
+	// CW-32: provided keys replace, omitted keys stay. A whole-object replace
+	// would mean an agent adding a UAT silently destroyed the story block it
+	// never mentioned, and the damage would only surface in the UI later.
 	if cardData != nil {
-		cur.CardData = cardData
+		cur.CardData = mergeCardData(cur.CardData, cardData)
 	}
 	_, err = s.db.ExecContext(ctx, `
 UPDATE kan.tickets SET

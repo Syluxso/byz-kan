@@ -49,8 +49,11 @@ func (s *Store) CreateBoard(ctx context.Context, orgID, tenantID, actorID, name,
 	if err != nil {
 		return BoardView{}, err
 	}
+	// CW-31: a new board discovers the card-shape catalog from its own schema
+	// rather than every client hardcoding it. Only new boards — rewriting an
+	// existing board's schema would change how its cards already render.
 	if cardSchema == nil {
-		cardSchema = []byte(`{}`)
+		cardSchema = defaultCardSchema()
 	}
 	if settings == nil {
 		settings = []byte(`{}`)
