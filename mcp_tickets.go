@@ -58,7 +58,7 @@ type mcpUpdateTicketIn struct {
 	Key             string  `json:"key,omitempty" jsonschema:"Human key like CW-1; provide id or key"`
 	Title           *string `json:"title,omitempty"`
 	Body            *string `json:"body,omitempty"`
-	TicketType      *string `json:"ticketType,omitempty" jsonschema:"ticket or defect"`
+	TicketType      *string `json:"ticketType,omitempty" jsonschema:"story | defect | spike | chore"`
 	Priority        *int    `json:"priority,omitempty" jsonschema:"Any integer; higher is more urgent"`
 	Position        *int    `json:"position,omitempty" jsonschema:"Order within its swimlane"`
 	EstimateMinutes *int    `json:"estimateMinutes,omitempty"`
@@ -67,7 +67,7 @@ type mcpUpdateTicketIn struct {
 	ClearDue        bool    `json:"clearDueAt,omitempty"`
 	ParentTicketID  *string `json:"parentTicketId,omitempty"`
 	ClearParent     bool    `json:"clearParentTicketId,omitempty"`
-	CardData        any     `json:"cardData,omitempty" jsonschema:"Arbitrary JSON object for Cardwallah card fields"`
+	CardData        any     `json:"cardData,omitempty" jsonschema:"Shaped blocks, merged into what is already stored: keys you send replace, keys you omit stay. story{asA,iWant,soThat}; acceptance[]; scenarios[{name,given,when,then}]; uat[]; defect{repro,expected,actual}; spike{question,timeboxMinutes,approach,findings,outcome,followUp}; chore{why,doneWhen}."`
 }
 
 func (a *app) mcpUpdateTicket(ctx context.Context, req *mcp.CallToolRequest, in mcpUpdateTicketIn) (*mcp.CallToolResult, any, error) {
