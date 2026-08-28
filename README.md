@@ -226,6 +226,7 @@ V1 acceptance checks live in `integration_test.go` (two tenants, keys, cascade, 
 |-----|---------|
 | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | V1 build plan, schema, API, rules |
 | [docs/SCHEMA.sql](docs/SCHEMA.sql) | Target PostgreSQL schema (`kan`) |
+| [docs/AGENT_CREDENTIALS.md](docs/AGENT_CREDENTIALS.md) | PAT vs IAM token: what reaches byz-files |
 | [DEPLOY.md](DEPLOY.md) | Supervisor / Jenkins / gateway |
 
 ## Related
