@@ -102,6 +102,84 @@ Notes:
 - The handler sets `X-Accel-Buffering: no` and flushes per event, but the
   **gateway must also not buffer this path** or events arrive batched or never.
 
+## Card shapes
+
+A card has two axes, and keeping them apart is the whole design (CW-31).
+
+**Type** is the kind of work — one per ticket:
+
+| Type | For |
+|------|-----|
+| `story` | Something a user wants. The default. |
+| `defect` | Something broken. |
+| `spike` | A question with a timebox. |
+| `chore` | Work that just needs doing. |
+
+`ticket` is still accepted as a legacy alias for `story`. Rows written before
+the catalog carry it and are never rewritten; the Go layer canonicalises it on
+write and the DB `CHECK` keeps allowing it.
+
+**Sections** are optional shaped blocks in `cardData`. Any type may carry any
+section — which is why UAT and scenarios are *not* types. A defect can have a
+UAT too, and making them types would force a choice that does not exist.
+
+| Section | Shape |
+|---------|-------|
+| `story` | `{asA, iWant, soThat}` |
+| `acceptance` | `string[]` |
+| `scenarios` | `[{name, given, when, then}]` |
+| `uat` | `string[]` |
+| `defect` | `{repro, expected, actual}` |
+| `spike` | `{question, timeboxMinutes, approach, findings, outcome, followUp}` |
+| `chore` | `{why, doneWhen}` |
+| `source` | `agent` or `user` — who shaped the card |
+
+The division of the record: **title** is the heading, **body** is evidence
+(logs, snippets, history), **cardData** is the shaped blocks the UI renders.
+
+### Seeding
+
+`create_ticket` takes `ticketType`, `cardData` and `seedShapes` (default true).
+With seeding on, the empty blocks for that type are filled in, so an agent can
+create a usable card from a one-line request without interrogating the user
+first:
+
+| Type | Seeded | Offered, never auto-created |
+|------|--------|------------------------------|
+| `story` | `story`, `acceptance` | `scenarios`, `uat` |
+| `defect` | `defect` | `scenarios`, `uat` |
+| `spike` | `spike` (question from the title) | — |
+| `chore` | `chore` | — |
+
+Nothing seeds a story onto a chore or a UAT onto a spike. An empty block is an
+invitation, and inviting the wrong thing is how cards fill with ceremony nobody
+wanted. Sections the caller sends always win, and unknown keys are stored
+untouched — the catalog describes what the UI renders, not what may be stored.
+
+`seedShapes: false` stores only what the caller sent.
+
+### Result envelope
+
+`create_ticket` returns the ticket's own fields (so `.key` and `.id` still read
+straight off it) plus:
+
+```json
+{ "shaped": ["story", "acceptance"],
+  "omitted": ["scenarios", "uat"],
+  "hint": "Shapes live on cardData. Add scenarios or uat with update_ticket, ..." }
+```
+
+`shaped` is what carries content; `omitted` is what is worth adding next. The
+agent decides whether to ask the user or fill them in itself — the server states
+what is missing rather than prescribing the conversation.
+
+`update_ticket` **merges** `cardData`: keys you send replace, keys you omit
+stay. A whole-object replace would mean adding a UAT silently destroyed the
+story block, and the damage would only surface in the UI much later.
+
+New boards are seeded with the catalog in `card_schema` so a client can discover
+the shapes. Existing boards keep whatever they have.
+
 ## Schema changes
 
 `docs/SCHEMA.sql` runs at startup and is entirely `CREATE TABLE IF NOT EXISTS`.

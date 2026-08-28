@@ -53,6 +53,21 @@ CREATE INDEX IF NOT EXISTS idx_attachments_parent
     WHERE deleted_at IS NULL;
 `,
 	},
+	{
+		// CW-31: ticket_type was CHECK (ticket, defect). The card-shape catalog
+		// adds story, spike and chore.
+		//
+		// 'ticket' stays in the list on purpose. Every row created before this
+		// carries it, and rewriting live rows to 'story' would be a data
+		// migration dressed up as a constraint change. The Go layer treats
+		// 'ticket' as an alias for story on write and leaves old rows alone.
+		Name: "2026-08-ticket-type-card-shapes",
+		SQL: `
+ALTER TABLE kan.tickets DROP CONSTRAINT IF EXISTS chk_ticket_type;
+ALTER TABLE kan.tickets ADD CONSTRAINT chk_ticket_type
+    CHECK (ticket_type IN ('ticket', 'story', 'defect', 'spike', 'chore'));
+`,
+	},
 }
 
 const migrationsTable = `

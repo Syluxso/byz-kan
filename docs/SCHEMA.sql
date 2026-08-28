@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS kan.tickets (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at         TIMESTAMPTZ,
-    CONSTRAINT chk_ticket_type CHECK (ticket_type IN ('ticket', 'defect'))
+    -- CW-31: 'ticket' is the pre-catalog alias for story; kept so old rows stay valid.
+    CONSTRAINT chk_ticket_type CHECK (ticket_type IN ('ticket', 'story', 'defect', 'spike', 'chore'))
 );
 
 -- numbers never reuse: unique even among soft-deleted rows
