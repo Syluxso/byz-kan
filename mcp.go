@@ -42,8 +42,16 @@ func (a *app) newMCPServer() *mcp.Server {
 	}, a.mcpListTickets)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "create_ticket",
-		Description: "Create a ticket on a board. Lands in the default Backlog state unless stateId is set. Returns key like SHIP-1.",
+		Name: "create_ticket",
+		Description: "Create a ticket on a board. Lands in the default Backlog state unless stateId is set. Returns key like SHIP-1.\n\n" +
+			"Title is the heading, body is evidence (logs, snippets), and cardData holds the shaped blocks the card renders: " +
+			"story{asA,iWant,soThat}, acceptance[], scenarios[{name,given,when,then}], uat[], defect{repro,expected,actual}, " +
+			"spike{question,timeboxMinutes,approach,findings,outcome,followUp}, chore{why,doneWhen}.\n\n" +
+			"ticketType is story|defect|spike|chore. UAT and scenarios are sections, not types, so a defect can carry a UAT too. " +
+			"If the user described the work only in passing, still create it in one call: the empty blocks for the type are seeded " +
+			"for you. Send whatever the user actually gave you in cardData on the same call rather than creating a stub and patching it.\n\n" +
+			"The result reports shaped (what is filled), omitted (what is worth adding next), and a hint. Use those to decide whether " +
+			"to ask the user for the missing pieces or to fill them yourself with update_ticket.",
 	}, a.mcpCreateTicket)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -199,11 +207,16 @@ func (a *app) mcpListTickets(ctx context.Context, req *mcp.CallToolRequest, in m
 }
 
 type mcpCreateTicketIn struct {
-	BoardID  string `json:"boardId" jsonschema:"Board UUID"`
-	Title    string `json:"title" jsonschema:"Ticket title"`
-	Body     string `json:"body,omitempty"`
-	StateID  string `json:"stateId,omitempty"`
-	Priority int    `json:"priority,omitempty"`
+	BoardID string `json:"boardId" jsonschema:"Board UUID"`
+	Title   string `json:"title" jsonschema:"The heading. One line naming the work."`
+	Body    string `json:"body,omitempty" jsonschema:"Evidence: logs, snippets, stack traces, history. Shaped fields belong in cardData, not here."`
+	StateID string `json:"stateId,omitempty"`
+	// Deliberately a pointer: absent must mean "seed", and a plain bool cannot
+	// tell an omitted field from an explicit false.
+	SeedShapes *bool  `json:"seedShapes,omitempty" jsonschema:"Default true. Seeds the empty shaped blocks for this type. Set false to store only what you send."`
+	TicketType string `json:"ticketType,omitempty" jsonschema:"story (default) | defect | spike | chore. UAT and scenarios are NOT types - they are sections you may put in cardData on any type."`
+	CardData   any    `json:"cardData,omitempty" jsonschema:"Shaped blocks. story{asA,iWant,soThat}; acceptance[]; scenarios[{name,given,when,then}]; uat[]; defect{repro,expected,actual}; spike{question,timeboxMinutes,approach,findings,outcome,followUp}; chore{why,doneWhen}. Any section may go on any type; unknown keys are stored untouched."`
+	Priority   int    `json:"priority,omitempty"`
 }
 
 func (a *app) mcpCreateTicket(ctx context.Context, req *mcp.CallToolRequest, in mcpCreateTicketIn) (*mcp.CallToolResult, any, error) {
@@ -214,11 +227,66 @@ func (a *app) mcpCreateTicket(ctx context.Context, req *mcp.CallToolRequest, in 
 	if !isUUID(in.BoardID) || strings.TrimSpace(in.Title) == "" {
 		return nil, nil, fmt.Errorf("boardId and title are required")
 	}
-	out, err := a.store.CreateTicket(ctx, sc, in.BoardID, in.StateID, "", strings.TrimSpace(in.Title), in.Body, "ticket", in.Priority, 0, nil, nil, nil)
+
+	ticketType, okType := normalizeTicketType(in.TicketType)
+	if !okType {
+		return nil, nil, fmt.Errorf("ticketType must be one of story, defect, spike, chore")
+	}
+
+	// cardData arrives as arbitrary JSON. Anything that is not an object has no
+	// shape to merge into, so refuse it rather than dropping it silently.
+	provided := map[string]any{}
+	if in.CardData != nil {
+		b, err := json.Marshal(in.CardData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cardData must be JSON-encodable: %w", err)
+		}
+		if err := json.Unmarshal(b, &provided); err != nil {
+			return nil, nil, fmt.Errorf("cardData must be a JSON object")
+		}
+	}
+
+	seed := in.SeedShapes == nil || *in.SeedShapes
+	merged, shaped, omitted := shapeCardData(ticketType, strings.TrimSpace(in.Title), provided, seed)
+
+	cardData, err := json.Marshal(merged)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cardData must be JSON-encodable: %w", err)
+	}
+
+	out, err := a.store.CreateTicket(ctx, sc, in.BoardID, in.StateID, "",
+		strings.TrimSpace(in.Title), in.Body, ticketType, in.Priority, 0, nil, nil, cardData)
 	if err != nil {
 		return nil, nil, err
 	}
-	return mcpJSON(out)
+
+	env, err := ticketWithShapeEnvelope(out, shaped, omitted)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcpJSON(env)
+}
+
+// ticketWithShapeEnvelope returns the ticket's own fields plus the
+// shaped/omitted/hint envelope from CW-32, so an agent is told what it just
+// wrote and what it could still add without making a second call to find out.
+//
+// The ticket stays flattened at the top level rather than nested under a
+// "ticket" key: callers already read .key and .id straight off this result, and
+// there is no reason to break them to add three fields.
+func ticketWithShapeEnvelope(t TicketView, shaped, omitted []string) (map[string]any, error) {
+	b, err := json.Marshal(t)
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]any{}
+	if err := json.Unmarshal(b, &env); err != nil {
+		return nil, err
+	}
+	env["shaped"] = shaped
+	env["omitted"] = omitted
+	env["hint"] = shapeHint(shaped, omitted)
+	return env, nil
 }
 
 type mcpGetTicketIn struct {
