@@ -422,6 +422,60 @@ func (s *Store) requireParent(ctx context.Context, sc scope, parentType, parentI
 	return errInvalid
 }
 
+// FindAttachmentByFileID resolves a byz-files fileId back to an attachment the
+// caller can see. Used by the CW-39 read-through when an agent has a fileId but
+// not the attachment row id.
+//
+// Returns the oldest matching row: the same file may be attached in several
+// places, and any of them proves the caller is entitled to read it.
+func (s *Store) FindAttachmentByFileID(ctx context.Context, sc scope, fileID string) (AttachmentView, error) {
+	if !isUUID(fileID) {
+		return AttachmentView{}, errInvalid
+	}
+	rows, err := s.db.QueryContext(ctx, attachmentSelect+`
+WHERE file_id = $1::uuid
+  AND organization_id = $2::uuid AND tenant_id = $3::uuid AND deleted_at IS NULL
+ORDER BY created_at ASC
+LIMIT 1
+`, fileID, sc.OrgID, sc.TenantID)
+	if err != nil {
+		return AttachmentView{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return AttachmentView{}, err
+		}
+		return AttachmentView{}, errNotFound
+	}
+	return scanAttachment(rows)
+}
+
+// GetAttachment fetches one attachment inside the caller's org and tenant.
+//
+// Scoped on purpose: CW-39 reads bytes through this row, so an attachment id
+// from another tenant must be indistinguishable from one that does not exist.
+func (s *Store) GetAttachment(ctx context.Context, sc scope, id string) (AttachmentView, error) {
+	if !isUUID(id) {
+		return AttachmentView{}, errInvalid
+	}
+	rows, err := s.db.QueryContext(ctx, attachmentSelect+`
+WHERE id = $1::uuid
+  AND organization_id = $2::uuid AND tenant_id = $3::uuid AND deleted_at IS NULL
+`, id, sc.OrgID, sc.TenantID)
+	if err != nil {
+		return AttachmentView{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return AttachmentView{}, err
+		}
+		return AttachmentView{}, errNotFound
+	}
+	return scanAttachment(rows)
+}
+
 func (s *Store) ListAttachments(ctx context.Context, sc scope, parentType, parentID string) ([]AttachmentView, error) {
 	if !AttachmentParents[parentType] || !isUUID(parentID) {
 		return nil, errInvalid

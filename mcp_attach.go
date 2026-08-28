@@ -22,6 +22,10 @@ func (a *app) addAttachmentTools(s *mcp.Server) {
 		Description: "Attach an existing byz-file-service fileId to a ticket, board or agent message. Upload the bytes to byz-file-service first.",
 	}, a.mcpAddAttachment)
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_attachment_text",
+		Description: "Read a text attachment (md, txt, json, csv, xml, yaml) through byz-file-service and return its content. Text only: images, PDFs and archives are refused. Use list_attachments to find the id.",
+	}, a.mcpGetAttachmentText)
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_attachment",
 		Description: "Soft-delete an attachment by its UUID. The underlying file is untouched.",
 	}, a.mcpDeleteAttachment)

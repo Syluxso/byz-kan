@@ -14,6 +14,12 @@ type ctxKey int
 
 const claimsCtxKey ctxKey = 1
 
+// bearerCtxKey holds the caller's raw token. Kept so a tool that reads through
+// to another byz service (CW-39) can present the CALLER's credential rather
+// than a service identity, which would make byz-kan a confused deputy: files
+// would see kan, never the tenant actor behind the request.
+const bearerCtxKey ctxKey = 2
+
 type TokenClaims struct {
 	OrganizationID string
 	TenantID       string
@@ -62,8 +68,17 @@ func withJWT(k keyfunc.Keyfunc, patSecret []byte, publicURL string, next http.Ha
 			return
 		}
 		ctx := context.WithValue(r.Context(), claimsCtxKey, tc)
+		ctx = context.WithValue(ctx, bearerCtxKey, tokenStr)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+// bearerFrom returns the caller's raw token when withJWT put one there.
+func bearerFrom(ctx context.Context) string {
+	if v, ok := ctx.Value(bearerCtxKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // parseAnyToken tries RS256 (IAM token) first, then HS256 (PAT) if patSecret is set.

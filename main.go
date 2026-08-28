@@ -36,6 +36,7 @@ type app struct {
 	iamClientID string
 	patSecret   []byte // HS256 key for personal access tokens; set via KAN_PAT_SECRET (hex)
 	httpc       *http.Client
+	filesURL    string           // byz-file-service base, for read-through only (CW-39)
 	brands      map[string]Brand // host → Brand, populated from KAN_BRANDS env var
 	hub         *Hub             // live board event fan-out for SSE subscribers
 }
@@ -47,6 +48,7 @@ func main() {
 	publicURL := strings.TrimRight(env("KAN_PUBLIC_URL", "https://api.byzantineapp.dev/kan"), "/")
 	iamURL := strings.TrimRight(env("IAM_URL", "https://iam.byzantineapp.dev"), "/")
 	iamClientID := env("KAN_IAM_CLIENT_ID", env("IAM_CLIENT_ID", ""))
+	filesURL := strings.TrimRight(env("BYZ_FILES_URL", "https://api.byzantineapp.dev/files"), "/")
 
 	brands := parseBrands(env("KAN_BRANDS", ""))
 
@@ -88,6 +90,7 @@ func main() {
 		iamClientID: iamClientID,
 		patSecret:   patSecret,
 		httpc:       &http.Client{Timeout: 15 * time.Second},
+		filesURL:    filesURL,
 		brands:      brands,
 		hub:         hub,
 	}
